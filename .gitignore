@@ -1,0 +1,18 @@
+# Orekit Earth/time data — large binary, download with `make data`
+orekit-data.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

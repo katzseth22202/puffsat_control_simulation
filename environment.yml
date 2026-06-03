@@ -1,0 +1,10 @@
+name: puffsat-sim
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - orekit_jpype>=13.0    # JPype-based Orekit bridge (recommended over JCC-based orekit)
+  - mypy>=1.9
+  - pytest>=8.0
+  - ruff>=0.4
