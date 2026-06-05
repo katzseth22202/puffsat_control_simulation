@@ -104,8 +104,8 @@ download_orekit_data_curdir()   # downloads to current directory
 | Orbit periapsis | 50 km | Below Kármán line — debris disposal by reentry |
 | Interception altitude | 200 km | During descent, before periapsis; Paper §3, design doc §3 |
 | Apogee altitude | ~150 000 km (from surface) | Design doc §3 recommendation |
-| Semi-major axis | ~81 478 km | Derived |
-| Eccentricity | ~0.919 | Derived |
+| Semi-major axis | ~81 403 km | Derived |
+| Eccentricity | ~0.921 | Derived |
 | Inclination | 28.5° (nominal) | Mid-latitude launch |
 | Speed at interception | ~10.78 km/s | Near escape speed at 200 km |
 | Orbital period | ~2.68 days | Derived |

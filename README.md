@@ -140,13 +140,13 @@ PuffSat Control Simulation — Orekit / JVM bridge hello world
   Python/JVM : OK
 
   Reference orbit (near-term architecture):
-    Perigee altitude : 200 km  (interception)
+    Orbit periapsis  : 50 km  (burns up here; interception at 200 km during descent)
     Apogee altitude  : 150 × 10³ km  (deployment)
-    Semi-major axis  : 81478.1 km
-    Eccentricity     : 0.919265
+    Semi-major axis  : 81403.1 km
+    Eccentricity     : 0.921033
     Inclination      : 28.5°
-    Orbital period   : 231458.2 s  (2.68 days)
-    Perigee speed    : 10.784 km/s
+    Orbital period   : 231138.7 s  (2.68 days)
+    Perigee speed    : 10.914 km/s
 
   One-period propagation residual (Keplerian → should be ~0):
     |Δr| = 7.856e-09 m

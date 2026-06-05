@@ -6,10 +6,11 @@ or:
     python -m puffsat_sim.hello_orekit
 
 The orbit used matches the near-term architecture from the paper:
-  - perigee 200 km (interception altitude)
+  - periapsis 50 km (orbit periapsis; PuffSat burns up here after impact)
+  - interception at 200 km during descent, before periapsis
   - apogee  ~150 000 km altitude (recommended deployment apogee from design doc)
-  - eccentricity ~0.919, period ~2.7 days
-  - perigee speed ~10.8 km/s
+  - eccentricity ~0.921, period ~2.68 days
+  - perigee speed ~10.91 km/s
 """
 from __future__ import annotations
 
@@ -43,9 +44,10 @@ from puffsat_sim.orbital_math import keplerian_elements, perigee_speed
 # Orbital parameters — near-term PuffSat architecture (paper §2 / design doc §3)
 # ---------------------------------------------------------------------------
 
-# Interception altitude: paper fixes this at 200 km.
-# Below ~120 km the PuffSat burns up; above ~300 km drag becomes negligible.
-_PERIGEE_ALT_M: Final[float] = 200_000.0
+# Orbit periapsis: 50 km — intentionally below the Kármán line so the PuffSat
+# burns up after impact (debris disposal).  Interception occurs at 200 km during
+# descent, before this periapsis is reached (design doc §3).
+_PERIGEE_ALT_M: Final[float] = 50_000.0
 
 # Deployment apogee: design doc recommends ~150 000 km altitude as a balance
 # between perigee-speed (~10.8 km/s, nearly independent of apogee) and
@@ -103,7 +105,7 @@ def propagate_one_period() -> None:
     print("  Python/JVM : OK")
     print()
     print("  Reference orbit (near-term architecture):")
-    print(f"    Perigee altitude : {_PERIGEE_ALT_M / 1e3:.0f} km  (interception)")
+    print(f"    Orbit periapsis  : {_PERIGEE_ALT_M / 1e3:.0f} km  (burns up here; interception at 200 km during descent)")
     print(f"    Apogee altitude  : {_APOGEE_ALT_M / 1e6:.0f} × 10³ km  (deployment)")
     print(f"    Semi-major axis  : {a / 1e3:.1f} km")
     print(f"    Eccentricity     : {e:.6f}")

@@ -5,8 +5,9 @@ import pytest
 
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period, perigee_speed
 
-# Reference orbit from the paper: 200 km perigee, 150 000 km apogee
-_PERIGEE_ALT_M = 200_000.0
+# Reference orbit: 50 km orbit periapsis (debris disposal), 150 000 km apogee
+# Interception occurs at 200 km during descent (design doc §3).
+_PERIGEE_ALT_M = 50_000.0
 _APOGEE_ALT_M = 150_000_000.0
 _EARTH_RADIUS_M = 6_378_137.0
 
@@ -25,8 +26,8 @@ class TestKeplerianElements:
 
     def test_reference_orbit_eccentricity(self) -> None:
         _, e = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
-        # Design doc §3: e ≈ 0.919 for the near-term architecture
-        assert e == pytest.approx(0.919265, rel=1e-4)
+        # Design doc §3: e ≈ 0.921 for the near-term architecture (50 km periapsis)
+        assert e == pytest.approx(0.921033, rel=1e-4)
 
     def test_eccentricity_bounded(self) -> None:
         _, e = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
@@ -37,8 +38,8 @@ class TestKeplerianPeriod:
     def test_reference_orbit_period(self) -> None:
         a, _ = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
         period = keplerian_period(a)
-        # Design doc §3: ~2.68 days
-        assert period == pytest.approx(231458.2, rel=1e-4)
+        # Design doc §3: ~2.68 days (50 km periapsis)
+        assert period == pytest.approx(231138.7, rel=1e-4)
 
     def test_iss_altitude_period(self) -> None:
         # ISS at ~420 km: period ~92 min = 5520 s
@@ -56,8 +57,8 @@ class TestPerigeeSpeed:
     def test_reference_orbit_perigee_speed(self) -> None:
         a, _ = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
         v = perigee_speed(a, _PERIGEE_ALT_M)
-        # Paper §2 / design doc §3: ~10.78 km/s at 200 km perigee
-        assert v == pytest.approx(10784.0, rel=1e-3)
+        # Design doc §3: ~10.91 km/s at 50 km periapsis
+        assert v == pytest.approx(10914.2, rel=1e-3)
 
     def test_circular_orbit_speed(self) -> None:
         # Circular orbit: vis-viva gives v = sqrt(mu/r)
