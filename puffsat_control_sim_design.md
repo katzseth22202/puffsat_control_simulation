@@ -12,7 +12,7 @@
 
 Build a closed-loop simulation to answer one question: **how controllable is a PuffSat on its way to interception?** Concretely, quantify the distribution of:
 
-1. **Perigee altitude achieved** at the interception pass (the mission-killer is the low tail: if perigee drops below ~120 km the PuffSat burns up before it reaches the target).
+1. **Interception success at 200 km** — whether the PuffSat reaches the 200 km interception altitude at the right position and time for pusher-plate impact. The orbit periapsis is 50 km by design (debris disposal; see Section 3), so the mission-killer is the PuffSat failing to reach the 200 km interception point intact and on-target, not the periapsis altitude per se.
 2. **Interception miss** (along-track timing and lateral position relative to the target rocket's pusher plate).
 3. **Propellant expended** for drag compensation and trajectory correction (the paper claims < 2% of a 25 kg PuffSat; this sim tests that).
 
@@ -42,7 +42,7 @@ The integrator question that started the discussion (REBOUND IAS15 vs Cowell, sy
 
 Constants: Earth gravitational parameter `mu = 398,600 km^3/s^2`; Earth radius `~6,378 km`; Earth Hill radius `r_Hill ≈ 1.496e6 km`.
 
-Perigee is fixed by the interception altitude: **200 km** → `r_p ≈ 6,578 km`. (A 300 km fallback is noted in the paper if 200 km proves unmanageable.)
+The orbit periapsis is **50 km** — intentionally below the Kármán line (~100 km) so the PuffSat burns up on the same pass after impact, handling its own debris disposal. The **interception occurs at 200 km altitude during descent**, before the PuffSat reaches its 50 km periapsis; this altitude is the control target. For orbital mechanics, `r_p ≈ 6,428 km` (the ~150 km difference from the 200 km interception altitude changes the sensitivity formula in Section 8 by <3%, negligible). A 300 km interception fallback is noted in the paper if 200 km proves unmanageable.
 
 Apogee is a **free design knob**, and choosing it well is one of the largest controllability levers available.
 
@@ -157,8 +157,9 @@ Regularized formulations (Sundman time-stretch, KS, EDromo, Dromo) are the elega
 ### 6.3 Regime hand-off altitudes
 - **~800 km:** turn the drag model on. Conservative guard band; drag is actually negligible here (~1e-8 m/s^2 at ~10 km/s through ~1e-14 kg/m^3). Cheap insurance against missing the onset.
 - **~600 km:** start the terminal continuous burn (drag rejection + final aim).
-- **~120 km:** burn-up floor. Perigee below this → mission failure flag.
-- **200 km:** nominal interception / perigee.
+- **200 km:** interception altitude — PuffSat impacts the pusher plate here, during descent.
+- **~120 km:** onset of significant aerobraking on the 50 km periapsis descent. The PuffSat passes through this on every pass by design; it is not a failure criterion. It marks where thermal and structural loads accumulate after the 200 km interception.
+- **50 km:** orbit periapsis. Below the Kármán line; PuffSat burns up here after impact — intentional debris disposal.
 
 Sensor sampling ramps with altitude across these boundaries (≈30 s in coast → 100 Hz in terminal), not as a single step; the ramp starts above 600 km so the filter enters the terminal burn already at full rate. See the schedule in §5.
 
@@ -235,7 +236,7 @@ No continuous burn is needed above ~600 km (drag negligible); only a small numbe
 - Sensor noise (the 100 Hz channel) and any dropouts/outliers.
 
 ### 10.3 Output metrics (per run)
-- Perigee altitude achieved; pass/fail vs the ~120 km burn-up floor.
+- Interception success: PuffSat reaches 200 km altitude at the correct position and time (pass/fail vs miss-distance threshold). Periapsis altitude is not a failure criterion — 50 km is the intended orbit periapsis.
 - Interception miss (along-track timing + lateral position).
 - Propellant expended (vs the < 2% claim).
 - Seed + draws (to enable replay).
@@ -366,11 +367,11 @@ Sets disturbance amplification, coast duration, and dynamical regime. See Sectio
 - **D. Sweep it.** Make apogee a parameter; let the Monte Carlo quantify perigee dispersion vs apogee, then pick.
 - **Lean:** D for the study, defaulting to C as the working point. The decision driver is how much aim leverage the launcher actually needs versus how much disturbance amplification the control can reject. Do not anchor on A.
 
-### 16.2 Perigee altitude
-Sets both drag severity (control difficulty) and margin above the ~120 km burn-up floor.
-- **A. 200 km (paper primary).** Maximum PuffSat-velocity benefit and lowest target-rocket propellant fraction. Costs: strongest and most variable drag, tightest control, only ~80 km above the burn-up floor.
-- **B. 300 km (paper fallback).** Density roughly an order of magnitude lower (much more benign drag), more burn-up margin. Costs: marginally higher target propellant fraction and reentry heating, slightly less velocity benefit.
-- **Lean:** run both (perigee is a cheap parameter). Lead with 200 km since that is the paper's claim, and report the 300 km contrast. The perigee tail at 200 vs 300 km is exactly the decision-relevant output.
+### 16.2 Interception altitude
+The orbit periapsis is fixed at **50 km** (debris disposal by reentry; see Section 3). This decision sets the altitude at which the PuffSat impacts the pusher plate during descent.
+- **A. 200 km (paper primary).** Maximum PuffSat-velocity benefit (~10.8 km/s at impact) and lowest target-rocket propellant fraction. Costs: strongest and most variable drag during the terminal phase, tightest control.
+- **B. 300 km (paper fallback).** Atmospheric density roughly an order of magnitude lower, much more benign terminal phase. Costs: marginally higher target propellant fraction and slightly less velocity benefit.
+- **Lean:** run both (interception altitude is a cheap parameter). Lead with 200 km since that is the paper's claim; the 300 km contrast shows the control difficulty trade-off.
 
 ### 16.3 Interception / target model (sets the miss metric)
 - **A. Fixed perigee point + epoch.** PuffSat must arrive at a specified position at a specified time. Simplest; decouples PuffSat guidance from target motion. Miss = position + timing error there.
@@ -423,11 +424,12 @@ The paper has off-board coordinator nodes that "account for communications and P
 | mu (Earth) | 398,600 km^3/s^2 |
 | Earth radius | ~6,378 km |
 | Earth Hill radius | ~1.496e6 km |
-| Perigee (200 km alt) r_p | ~6,578 km |
-| v_perigee (any high-e apogee) | ~10.8–11.0 km/s |
+| Orbit periapsis (50 km alt) r_p | ~6,428 km |
+| Interception altitude | 200 km (during descent, before periapsis) |
+| v_at_interception (any high-e apogee) | ~10.8–11.0 km/s |
 | Terminal delta-v budget (400 g, Isp 200 s, 25 kg) | ~32 m/s |
 | Terminal descent 600 → 200 km | ~5 minutes |
-| Burn-up floor (perigee) | ~120 km |
+| Post-impact aerobraking onset | ~120 km (PuffSat burns up at ~50 km; intentional) |
 | Leverage dr_p/dv_a = v_a·(r_a+r_p)^2/mu | ~250 (0.9 Hill), ~72 (lunar), ~30 (150k km) km per m/s |
 | Required apogee velocity accuracy (few km perigee) | ~1–2 cm/s at 0.9 Hill, looser at closer apogee |
 

@@ -101,14 +101,15 @@ download_orekit_data_curdir()   # downloads to current directory
 
 | Parameter | Value | Source |
 |---|---|---|
-| Perigee altitude | 200 km | Paper §3, design doc §3 |
+| Orbit periapsis | 50 km | Below Kármán line — debris disposal by reentry |
+| Interception altitude | 200 km | During descent, before periapsis; Paper §3, design doc §3 |
 | Apogee altitude | ~150 000 km (from surface) | Design doc §3 recommendation |
 | Semi-major axis | ~81 478 km | Derived |
 | Eccentricity | ~0.919 | Derived |
 | Inclination | 28.5° (nominal) | Mid-latitude launch |
-| Perigee speed | ~10.78 km/s | Near escape at perigee |
+| Speed at interception | ~10.78 km/s | Near escape speed at 200 km |
 | Orbital period | ~2.68 days | Derived |
-| Burnup floor | 120 km | Design doc §6.3 |
+| Post-impact burnup | ~120 km onset, ~50 km complete | Design doc §6.3 |
 
 ## Build rungs (from design doc)
 
