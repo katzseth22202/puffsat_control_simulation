@@ -13,6 +13,11 @@ before touching any physics or control code) and in the companion paper
 *Aim Is All You Need: A Speculative White Paper on PuffSat Pulsed Propulsion*
 by Seth Katz (https://doi.org/10.5281/zenodo.16741183).
 
+The LaTeX source and design document for the paper live at
+https://github.com/katzseth22202/Balloon-Pulse-Propulsion — the
+`puffsat_control_sim_design.md` there is the authoritative near-term feasibility
+and control algorithm specification that drives this simulation.
+
 ## What the simulation does
 
 Three decoupled pieces in a closed loop:

@@ -22,6 +22,41 @@ Output metrics per Monte Carlo run: perigee altitude achieved (mission-killer if
 
 For the full design rationale — force models, propagation strategy, controllability analysis, tooling decisions — see [`puffsat_control_sim_design.md`](puffsat_control_sim_design.md).
 
+## Companion paper & near-term feasibility
+
+The LaTeX source for the companion paper, along with the authoritative control-algorithm design document, lives at **[katzseth22202/Balloon-Pulse-Propulsion](https://github.com/katzseth22202/Balloon-Pulse-Propulsion)**. The `puffsat_control_sim_design.md` in that repo is the specification this simulation implements.
+
+### Why the orbit is controllable (near-term feasibility case)
+
+The design document establishes controllability around one pivotal choice: **apogee at ~150 000 km instead of the 0.9 Hill radius (~1.35 M km)**. That single decision:
+
+- Reduces perigee-altitude sensitivity from ~250 km/m/s to ~30 km/m/s, making injection errors tolerable
+- Cuts solar-tidal perturbations from ~49% to ~0.1% of local gravity, removing chaos from the problem
+- Shrinks SRP-driven dispersions by roughly an order of magnitude through a shorter coast arc
+
+With those margins, a 25 kg PuffSat carrying ~400 g of cold gas (Isp ~200 s, ~32 m/s total Δv) can execute two midcourse corrections (~1 m/s each, buying hundreds of kilometers of perigee adjustment) plus a terminal continuous burn for drag rejection and final aim — and still stay within the paper's <2% propellant claim.
+
+### Control algorithm structure
+
+The algorithm decomposes forces by feedback bandwidth across three tiers:
+
+| Tier | Forces | Mechanism |
+|---|---|---|
+| Feedforward (open-loop) | Geopotential, J2+, third-body Sun/Moon | Recomputed from current state estimate |
+| Slow feedback | Solar radiation pressure, coast divergence | `Cr·(A/m)` as UKF state; discrete midcourse burns |
+| Fast feedback | Atmospheric drag near perigee | `Cd·(A/m)` as UKF state; continuous terminal burn |
+
+Four clocks are strictly separated (conflating them caused errors in earlier framing):
+
+```
+Integrator step     — adaptive, non-uniform (minutes → sub-second)
+UKF update          — altitude-scheduled (0.03 Hz coast → 100 Hz terminal)
+MPC replan          — per-maneuver in coast; 1–10 Hz terminal
+Inner tracking loop — up to 100 Hz (thrust modulation, not gimbal)
+```
+
+MPC replanning is **not compute-bound** — a warm-started QP solves in µs–ms, well inside any replan budget. The binding limits are information arrival rate and how fast the reference changes (~minute timescale in coast, ~second in terminal).
+
 ## Requirements
 
 - **conda** (Miniconda or Anaconda) — [install Miniconda](https://docs.conda.io/en/latest/miniconda.html) if you don't have it
