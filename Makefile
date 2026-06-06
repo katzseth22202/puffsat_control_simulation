@@ -7,7 +7,7 @@ TESTS   := tests
 all: mypy lint test
 
 run: orekit-data.zip
-	$(PYTHON) -m $(PACKAGE).hello_orekit
+	$(PYTHON) -m $(PACKAGE).truth_model
 
 test:
 	pytest $(TESTS)

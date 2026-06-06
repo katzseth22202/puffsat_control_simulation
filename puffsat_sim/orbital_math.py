@@ -1,6 +1,6 @@
 """Pure-Python orbital mechanics helpers — no JVM dependency.
 
-These functions are used by hello_orekit.py and tested independently of Orekit.
+Used by truth_model.py and tested independently of Orekit.
 """
 from __future__ import annotations
 

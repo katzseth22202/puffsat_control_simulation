@@ -155,7 +155,7 @@ No pip install step — flat layout, Python finds `puffsat_sim/` directly from t
 
 ```bash
 make all       # mypy + lint + test
-make run       # hello world (puffsat_sim.hello_orekit)
+make run       # Rung A truth model (puffsat_sim.truth_model)
 make test      # pytest
 make mypy      # strict type check
 make lint      # ruff check
@@ -170,7 +170,7 @@ make clean     # remove caches
 - `environment.yml` — conda environment (no pip).
 - `pyproject.toml` — tool config only: mypy, ruff, pytest.
 - `Makefile` — task runner.
-- `puffsat_sim/hello_orekit.py` — hello world; JVM bridge sanity check.
+- `puffsat_sim/truth_model.py` — Rung A: Keplerian truth propagation; JVM bridge and reference orbit verification.
 - `tests/` — pytest suite.
 
 ## License

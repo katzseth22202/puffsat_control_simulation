@@ -1,9 +1,12 @@
-"""Hello Orekit: verify the Python/JVM bridge with a PuffSat reference orbit.
+"""Rung A truth model: Keplerian propagation of the PuffSat reference orbit.
+
+Verifies the Orekit / JVM bridge and the reference orbit parameters before
+perturbation force models are added (Rung A of the design doc build ladder).
 
 Run with:
     make run
 or:
-    python -m puffsat_sim.hello_orekit
+    python -m puffsat_sim.truth_model
 
 The orbit used matches the near-term architecture from the paper:
   - periapsis 50 km (orbit periapsis; PuffSat burns up here after impact)
@@ -108,8 +111,8 @@ def propagate_one_period() -> None:
         + (vel.getZ() - v_0.getZ()) ** 2
     )
 
-    print("PuffSat Control Simulation — Orekit / JVM bridge hello world")
-    print("  Python/JVM : OK")
+    print("PuffSat Control Simulation — Rung A: Keplerian reference orbit")
+    print("  Orekit / JVM : OK")
     print()
     print("  Reference orbit (near-term architecture):")
     print(

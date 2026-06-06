@@ -119,9 +119,9 @@ from orekit.pyhelpers import download_orekit_data_curdir
 download_orekit_data_curdir()   # downloads to current directory; requires internet
 ```
 
-## Run the hello world
+## Run the Rung A truth model
 
-Verify that the Python/JVM bridge is working and the reference orbit is sane:
+Verify the Orekit / JVM bridge and the reference orbit parameters:
 
 ```bash
 make run
@@ -130,14 +130,14 @@ make run
 or directly:
 
 ```bash
-python -m puffsat_sim.hello_orekit
+python -m puffsat_sim.truth_model
 ```
 
 Expected output (numbers are exact for Keplerian propagation):
 
 ```
-PuffSat Control Simulation — Orekit / JVM bridge hello world
-  Python/JVM : OK
+PuffSat Control Simulation — Rung A: Keplerian reference orbit
+  Orekit / JVM : OK
 
   Reference orbit (near-term architecture):
     Orbit periapsis  : 50 km  (burns up here; interception at 200 km during descent)
@@ -157,7 +157,7 @@ PuffSat Control Simulation — Orekit / JVM bridge hello world
 
 ```bash
 make all        # mypy + lint + test (CI equivalent)
-make run        # hello world
+make run        # Rung A truth model (reference orbit verification)
 make test       # pytest
 make mypy       # strict type check
 make lint       # ruff check (subsumes flake8/isort/pyupgrade)
@@ -178,7 +178,8 @@ puffsat_control_simulation/
 ├── puffsat_control_sim_design.md    # detailed design document (read this first)
 ├── puffsat_sim/
 │   ├── __init__.py
-│   └── hello_orekit.py              # hello world: JVM bridge + reference orbit
+│   ├── orbital_math.py              # pure-Python Keplerian helpers (no JVM)
+│   └── truth_model.py               # Rung A: Keplerian propagation, reference orbit verification
 └── tests/
     └── __init__.py
 ```
