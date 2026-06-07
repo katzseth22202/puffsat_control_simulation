@@ -6,6 +6,8 @@ import pytest
 
 from puffsat_sim.config import OrbitalConfig
 from puffsat_sim.orbital_math import (
+    j2_apsidal_precession_rate,
+    j2_nodal_regression_rate,
     keplerian_elements,
     keplerian_period,
     orbital_config_from_cities,
@@ -114,6 +116,61 @@ class TestOrbitalConfigFromCities:
                 perigee_alt_m=self._PERIGEE,
                 apogee_alt_m=self._APOGEE,
             )
+
+
+class TestJ2Rates:
+    """Verify J2 secular rate formulas against known values for the reference orbit.
+
+    Reference orbit: 50 km periapsis, 150 000 km apogee, ~70° inclination.
+    At i ≈ 70°, 5cos²i − 1 ≈ 5·(0.342)² − 1 ≈ −0.415, so apsidal precession
+    is retrograde.  Nodal regression is always retrograde for prograde orbits.
+
+    Values derived from the J2 analytic formulas with the same constants used
+    in orbital_math.py (_J2, _WGS84_MU, _EARTH_RADIUS_M).
+    """
+
+    _A, _E = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
+    _PERIOD = keplerian_period(_A)
+    _I_70 = math.radians(70.0)
+    _I_63_4 = math.radians(63.435)  # critical inclination: apsidal precession ≈ 0
+
+    def test_nodal_regression_retrograde_prograde(self) -> None:
+        rate = j2_nodal_regression_rate(self._A, self._E, self._I_70)
+        assert rate < 0.0, "Nodal regression must be retrograde (negative) for prograde orbit"
+
+    def test_apsidal_precession_retrograde_at_70_deg(self) -> None:
+        rate = j2_apsidal_precession_rate(self._A, self._E, self._I_70)
+        assert rate < 0.0, "Apsidal precession must be retrograde at i=70° (5cos²i−1 < 0)"
+
+    def test_apsidal_precession_zero_at_critical_inclination(self) -> None:
+        rate = j2_apsidal_precession_rate(self._A, self._E, self._I_63_4)
+        assert abs(rate) < 1e-12, "Apsidal precession must vanish at critical inclination ~63.4°"
+
+    def test_apsidal_precession_prograde_at_low_inclination(self) -> None:
+        rate = j2_apsidal_precession_rate(self._A, self._E, math.radians(28.5))
+        assert rate > 0.0, "Apsidal precession must be prograde at i=28.5° (5cos²i−1 > 0)"
+
+    def test_nodal_drift_per_period_order_of_magnitude(self) -> None:
+        # Reference orbit i≈70°: expect ΔRAAN ≈ −0.04° to −0.07° per period
+        rate = j2_nodal_regression_rate(self._A, self._E, self._I_70)
+        d_raan_deg = math.degrees(rate * self._PERIOD)
+        assert -0.10 < d_raan_deg < -0.02
+
+    def test_apsidal_drift_per_period_order_of_magnitude(self) -> None:
+        # Reference orbit i≈70°: expect Δω ≈ −0.02° to −0.05° per period
+        rate = j2_apsidal_precession_rate(self._A, self._E, self._I_70)
+        d_omega_deg = math.degrees(rate * self._PERIOD)
+        assert -0.06 < d_omega_deg < -0.01
+
+    def test_equatorial_orbit_max_nodal_regression(self) -> None:
+        # i=0: nodal regression is most negative; cos(0)=1, maximum magnitude
+        rate_eq = j2_nodal_regression_rate(self._A, self._E, 0.0)
+        rate_70 = j2_nodal_regression_rate(self._A, self._E, self._I_70)
+        assert rate_eq < rate_70, "Equatorial orbit must have faster nodal regression than 70°"
+
+    def test_polar_orbit_zero_nodal_regression(self) -> None:
+        rate = j2_nodal_regression_rate(self._A, self._E, math.radians(90.0))
+        assert abs(rate) < 1e-16, "Polar orbit (i=90°) must have zero nodal regression"
 
 
 class TestPerigeeSpeed:

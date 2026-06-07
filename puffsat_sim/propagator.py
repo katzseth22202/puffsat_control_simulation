@@ -4,12 +4,13 @@ Importing this module starts the JVM and loads Orekit data.  All
 org.orekit.* imports elsewhere in the package must come after this module
 has been imported.
 
-build_propagator() is the sole public entry point for Rung 1.  Force models
-(Rung 2+) are added here when PhysicsConfig gains non-Keplerian settings.
+build_propagator() is the sole public entry point.  Adding a new force model
+(Rung 2b, 2c, 2d) means adding one branch in _build_numerical_propagator();
+the rest of the stack is unchanged.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 import orekit_jpype
 
@@ -21,33 +22,42 @@ from orekit_jpype.pyhelpers import setup_orekit_curdir
 
 setup_orekit_curdir()  # loads orekit-data.zip from the current working directory
 
+from org.hipparchus.ode.nonstiff import DormandPrince853Integrator
+from org.orekit.forces.gravity import HolmesFeatherstoneAttractionModel
+from org.orekit.forces.gravity.potential import GravityFieldFactory
 from org.orekit.frames import FramesFactory
-from org.orekit.orbits import KeplerianOrbit, PositionAngleType
+from org.orekit.orbits import KeplerianOrbit, OrbitType, PositionAngleType
+from org.orekit.propagation import SpacecraftState
 from org.orekit.propagation.analytical import KeplerianPropagator
+from org.orekit.propagation.numerical import NumericalPropagator
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
-from org.orekit.utils import Constants
+from org.orekit.utils import Constants, IERSConventions
 
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.orbital_math import keplerian_elements
+
+# ---------------------------------------------------------------------------
+# Numerical integrator settings — coast phase (Rung 2).
+# Tight relative tolerance avoids integration error masquerading as physical
+# dispersion in the sensitivity analysis (design doc §11.2).
+# ---------------------------------------------------------------------------
+_MIN_STEP_S: Final[float] = 1.0      # 1 s — handles fast perigee pass
+_MAX_STEP_S: Final[float] = 600.0    # 10 min — safe for the slow apogee region
+_ABS_TOL_M: Final[float] = 1e-3     # 1 mm absolute position / velocity tolerance
+_REL_TOL: Final[float] = 1e-10      # relative tolerance
 
 
 def build_propagator(orbital_config: OrbitalConfig, physics_config: PhysicsConfig) -> Any:
     """Return a configured Orekit propagator for the given run.
 
-    Rung 1 (Keplerian): returns KeplerianPropagator — analytical, no force models.
-    Rung 2+ (NumericalPropagator with force models): not yet implemented.
+    Keplerian (PhysicsConfig.is_keplerian=True): analytical KeplerianPropagator.
+    Otherwise: NumericalPropagator with force models selected by PhysicsConfig.
 
-    The propagator epoch is set to orbital_config.epoch and the satellite is
-    placed at mean anomaly = orbital_config.mean_anomaly_at_epoch_rad
-    (default π = apogee, the nominal deployment point).
+    The propagator is initialised at orbital_config.epoch with mean anomaly
+    orbital_config.mean_anomaly_at_epoch_rad (default π = apogee).
 
-    orbital_config.epoch must be a whole-second UTC datetime (microseconds ignored).
+    orbital_config.epoch must be a whole-second UTC datetime.
     """
-    if not physics_config.is_keplerian:
-        raise NotImplementedError(
-            "NumericalPropagator with force models is not yet implemented (Rung 2+)."
-        )
-
     utc = TimeScalesFactory.getUTC()
     frame = FramesFactory.getEME2000()
     mu: float = Constants.WGS84_EARTH_MU
@@ -72,4 +82,36 @@ def build_propagator(orbital_config: OrbitalConfig, physics_config: PhysicsConfi
         mu,
     )
 
-    return KeplerianPropagator(orbit)
+    if physics_config.is_keplerian:
+        return KeplerianPropagator(orbit)
+
+    return _build_numerical_propagator(orbit, physics_config)
+
+
+def _build_numerical_propagator(orbit: Any, physics_config: PhysicsConfig) -> Any:
+    """Build a NumericalPropagator and attach the requested force models."""
+    itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, True)
+
+    integrator = DormandPrince853Integrator(_MIN_STEP_S, _MAX_STEP_S, _ABS_TOL_M, _REL_TOL)
+    propagator = NumericalPropagator(integrator)
+    propagator.setOrbitType(OrbitType.KEPLERIAN)
+    propagator.setPositionAngleType(PositionAngleType.MEAN)
+    propagator.setInitialState(SpacecraftState(orbit))
+
+    if physics_config.geopotential_degree > 0:
+        provider = GravityFieldFactory.getNormalizedProvider(
+            physics_config.geopotential_degree,
+            physics_config.geopotential_degree,
+        )
+        propagator.addForceModel(HolmesFeatherstoneAttractionModel(itrf, provider))
+
+    if physics_config.third_body:
+        raise NotImplementedError("Third-body force model not yet implemented (Rung 2b).")
+
+    if physics_config.srp_cr_area_over_mass is not None:
+        raise NotImplementedError("SRP force model not yet implemented (Rung 2c).")
+
+    if physics_config.drag_cd_area_over_mass is not None:
+        raise NotImplementedError("Drag force model not yet implemented (Rung 2d).")
+
+    return propagator

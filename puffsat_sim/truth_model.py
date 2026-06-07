@@ -23,6 +23,8 @@ from typing import Final
 
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.orbital_math import (
+    j2_apsidal_precession_rate,
+    j2_nodal_regression_rate,
     keplerian_elements,
     keplerian_period,
     orbital_config_from_cities,
@@ -35,6 +37,7 @@ from puffsat_sim.propagator import build_propagator  # noqa: E402
 
 from org.orekit.bodies import OneAxisEllipsoid
 from org.orekit.frames import FramesFactory
+from org.orekit.orbits import KeplerianOrbit
 from org.orekit.propagation.events import AltitudeDetector
 from org.orekit.propagation.events.handlers import StopOnDecreasing
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
@@ -168,10 +171,59 @@ def propagate_to_interception(
     print(f"    Speed at interception  : {v / 1e3:.3f} km/s")
 
 
+def validate_j2_signatures(orbital_config: OrbitalConfig) -> None:
+    """Propagate one period with J2 and compare ΔRAAN / Δω against analytic predictions.
+
+    Checks that the NumericalPropagator + HolmesFeatherstoneAttractionModel (degree 2)
+    produces nodal regression and apsidal precession rates consistent with the
+    first-order J2 secular formulas in orbital_math.  Agreement within ~1% confirms
+    the force model, integrator tolerances, and rate formulas are mutually consistent.
+    """
+    a, e = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
+    i = orbital_config.inclination_rad
+
+    epoch = _to_absolute_date(orbital_config.epoch)
+    propagator = build_propagator(orbital_config, PhysicsConfig.rung_2a())
+
+    initial_state = propagator.getInitialState()
+    initial_orbit = KeplerianOrbit(initial_state.getOrbit())
+    raan_0: float = initial_orbit.getRightAscensionOfAscendingNode()
+    omega_0: float = initial_orbit.getPerigeeArgument()
+
+    final_state = propagator.propagate(epoch.shiftedBy(period))
+    final_orbit = KeplerianOrbit(final_state.getOrbit())
+    raan_f: float = final_orbit.getRightAscensionOfAscendingNode()
+    omega_f: float = final_orbit.getPerigeeArgument()
+
+    d_raan_num = math.degrees(raan_f - raan_0)
+    d_omega_num = math.degrees(omega_f - omega_0)
+
+    rate_raan = j2_nodal_regression_rate(a, e, i)
+    rate_omega = j2_apsidal_precession_rate(a, e, i)
+    d_raan_analytic = math.degrees(rate_raan * period)
+    d_omega_analytic = math.degrees(rate_omega * period)
+
+    pct_raan = abs(d_raan_num - d_raan_analytic) / abs(d_raan_analytic) * 100.0
+    pct_omega = abs(d_omega_num - d_omega_analytic) / abs(d_omega_analytic) * 100.0
+
+    print("  J2 signature validation (Rung 2a):")
+    print(
+        f"    ΔRAAN  numeric: {d_raan_num:+.4f}°  "
+        f"analytic: {d_raan_analytic:+.4f}°  agree: {100.0 - pct_raan:.2f}%"
+    )
+    print(
+        f"    Δω     numeric: {d_omega_num:+.4f}°  "
+        f"analytic: {d_omega_analytic:+.4f}°  agree: {100.0 - pct_omega:.2f}%"
+    )
+
+
 def main() -> None:
     propagate_one_period(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
     print()
     propagate_to_interception(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
+    print()
+    validate_j2_signatures(_NOMINAL_CONFIG)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from puffsat_sim.config import OrbitalConfig
 
 _EARTH_RADIUS_M: Final[float] = 6_378_137.0   # WGS84 equatorial radius [m]
 _WGS84_MU: Final[float] = 3.986_004_418e14    # Earth gravitational parameter [m³/s²]
+_J2: Final[float] = 1.08262668e-3             # EGM2008 zonal harmonic J2
 
 # J2000.0 reference epoch (2000-01-01 12:00:00 UTC) for GMST calculation.
 _J2000_UTC: Final[datetime] = datetime(2000, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -35,6 +36,36 @@ def perigee_speed(semi_major_axis_m: float, perigee_alt_m: float) -> float:
     """Return speed at perigee [m/s] via the vis-viva equation."""
     r_p = _EARTH_RADIUS_M + perigee_alt_m
     return math.sqrt(_WGS84_MU * (2.0 / r_p - 1.0 / semi_major_axis_m))
+
+
+# ---------------------------------------------------------------------------
+# J2 secular perturbation rates (first-order, zonal only)
+# ---------------------------------------------------------------------------
+
+def j2_nodal_regression_rate(
+    semi_major_axis_m: float, eccentricity: float, inclination_rad: float
+) -> float:
+    """First-order secular RAAN drift rate due to J2 [rad/s].
+
+    dΩ/dt = -3/2 · n · J2 · (Rₑ/p)² · cos i
+    """
+    n = math.sqrt(_WGS84_MU / semi_major_axis_m**3)
+    p = semi_major_axis_m * (1.0 - eccentricity**2)
+    return -1.5 * n * _J2 * (_EARTH_RADIUS_M / p) ** 2 * math.cos(inclination_rad)
+
+
+def j2_apsidal_precession_rate(
+    semi_major_axis_m: float, eccentricity: float, inclination_rad: float
+) -> float:
+    """First-order secular argument-of-perigee drift rate due to J2 [rad/s].
+
+    dω/dt = 3/4 · n · J2 · (Rₑ/p)² · (5 cos²i − 1)
+    """
+    n = math.sqrt(_WGS84_MU / semi_major_axis_m**3)
+    p = semi_major_axis_m * (1.0 - eccentricity**2)
+    return 0.75 * n * _J2 * (_EARTH_RADIUS_M / p) ** 2 * (
+        5.0 * math.cos(inclination_rad) ** 2 - 1.0
+    )
 
 
 # ---------------------------------------------------------------------------
