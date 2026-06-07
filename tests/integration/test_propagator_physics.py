@@ -18,15 +18,14 @@ from typing import Any
 
 import pytest
 
+from puffsat_sim import presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
-from puffsat_sim.orbital_math import (
+from puffsat_sim.forces.geopotential import (
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
-    keplerian_elements,
-    keplerian_period,
-    orbital_config_from_cities,
-    wrap_to_pi,
 )
+from puffsat_sim.orbital_math import keplerian_elements, keplerian_period, wrap_to_pi
+from puffsat_sim.orbital_plane import orbital_config_from_cities
 
 try:
     # Importing propagator boots the JVM and loads orekit-data.zip from the cwd.
@@ -95,22 +94,22 @@ def _final_position(config: OrbitalConfig, physics: PhysicsConfig) -> tuple[floa
 
 @pytest.fixture(scope="module")
 def pos_j2(config: OrbitalConfig) -> tuple[float, float, float]:
-    return _final_position(config, PhysicsConfig.rung_2a())
+    return _final_position(config, presets.j2())
 
 
 @pytest.fixture(scope="module")
 def pos_j2_third_body(config: OrbitalConfig) -> tuple[float, float, float]:
-    return _final_position(config, PhysicsConfig.rung_2b())
+    return _final_position(config, presets.j2_third_body())
 
 
 @pytest.fixture(scope="module")
 def pos_srp(config: OrbitalConfig) -> tuple[float, float, float]:
-    return _final_position(config, PhysicsConfig.rung_2c())
+    return _final_position(config, presets.j2_third_body_srp())
 
 
 def test_keplerian_one_period_round_trip(config: OrbitalConfig) -> None:
     """A pure-Keplerian orbit must return to its start after exactly one period."""
-    prop = build_propagator(config, PhysicsConfig.rung_keplerian())
+    prop = build_propagator(config, presets.two_body())
     pv0 = prop.getInitialState().getPVCoordinates()
     state = prop.propagate(_abs_date(config.epoch).shiftedBy(_period(config)))
     pv = state.getPVCoordinates()
@@ -121,7 +120,7 @@ def test_keplerian_one_period_round_trip(config: OrbitalConfig) -> None:
 def test_interception_stops_at_200km(config: OrbitalConfig) -> None:
     """AltitudeDetector must stop the descending arc at the 200 km crossing."""
     earth = _earth()
-    prop = build_propagator(config, PhysicsConfig.rung_keplerian())
+    prop = build_propagator(config, presets.two_body())
     prop.addEventDetector(
         AltitudeDetector(_INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
     )
@@ -148,7 +147,7 @@ def test_j2_secular_rates_match_analytic(config: OrbitalConfig) -> None:
     period = _period(config)
     i = config.inclination_rad
 
-    prop = build_propagator(config, PhysicsConfig.rung_2a())
+    prop = build_propagator(config, presets.j2())
     orbit_0 = KeplerianOrbit(prop.getInitialState().getOrbit())
     orbit_f = KeplerianOrbit(prop.propagate(_abs_date(config.epoch).shiftedBy(period)).getOrbit())
 
@@ -195,8 +194,8 @@ def test_drag_removes_orbital_energy(config: OrbitalConfig) -> None:
         v = float(pv.getVelocity().getNorm())
         return 0.5 * v * v - mu / r
 
-    energy_no_drag = energy_at_interception(PhysicsConfig.rung_2c())
-    energy_with_drag = energy_at_interception(PhysicsConfig.rung_2d())
+    energy_no_drag = energy_at_interception(presets.j2_third_body_srp())
+    energy_with_drag = energy_at_interception(presets.full_force())
     assert energy_with_drag < energy_no_drag
 
 
@@ -209,7 +208,7 @@ def test_eclipse_detector_runs_full_period(config: OrbitalConfig) -> None:
     """
     sun = CelestialBodyFactory.getSun()
     earth = _earth()
-    prop = build_propagator(config, PhysicsConfig.rung_2c())
+    prop = build_propagator(config, presets.j2_third_body_srp())
     logger = EventsLogger()
     prop.addEventDetector(
         logger.monitorDetector(

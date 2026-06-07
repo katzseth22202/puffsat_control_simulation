@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from puffsat_sim.forces import Perturbation
+
 
 @dataclass(frozen=True)
 class OrbitalConfig:
@@ -29,90 +31,21 @@ class OrbitalConfig:
 
 @dataclass(frozen=True)
 class PhysicsConfig:
-    """Force model selection and per-run parameters for one simulation run.
+    """Force model selection for one simulation run — a set of active Perturbations.
 
-    geopotential_degree=0 with all other fields at defaults selects pure
-    Keplerian (point-mass) propagation.
+    An empty tuple selects pure Keplerian (point-mass / two-body) propagation.
+    Each Perturbation carries only the parameters its force needs; per-run Monte
+    Carlo draws (e.g. log-normal Cd·(A/m) / Cr·(A/m)) are applied by constructing
+    the relevant spec with the sampled value and held fixed for the run, because a
+    constant coefficient error integrates coherently over the coast and drives
+    perigee dispersion.
 
-    geopotential_order is the maximum tesseral order of the gravity field and
-    must not exceed geopotential_degree.  order=0 selects a zonal-only field;
-    e.g. degree=2, order=0 is pure J2 (no C21/S21/C22/S22 sectorial terms).
-
-    srp_cr_area_over_mass and drag_cd_area_over_mass are None when the
-    corresponding force model is inactive; a float (m²/kg) enables it.
-    In the Monte Carlo both are drawn per-trajectory from a multiplicative
-    log-normal (~10–30% 1-sigma) and held fixed for the run, because a
-    constant coefficient error integrates coherently over the coast and
-    drives perigee dispersion.
+    Use :mod:`puffsat_sim.presets` for the named, content-described bundles.
     """
 
-    geopotential_degree: int = 0
-    geopotential_order: int = 0  # max tesseral order; 0 = zonal only (degree 2 → pure J2)
-    third_body: bool = False
-    srp_cr_area_over_mass: float | None = None   # Cr·(A/m) [m²/kg]; None = SRP off
-    drag_cd_area_over_mass: float | None = None  # Cd·(A/m) [m²/kg]; None = drag off
-    f10p7: float = 150.0  # solar flux index for atmospheric drag model
-    ap: float = 15.0      # geomagnetic index for atmospheric drag model
-
-    def __post_init__(self) -> None:
-        if self.geopotential_order > self.geopotential_degree:
-            raise ValueError(
-                "geopotential_order "
-                f"({self.geopotential_order}) cannot exceed geopotential_degree "
-                f"({self.geopotential_degree})."
-            )
+    perturbations: tuple[Perturbation, ...] = ()
 
     @property
     def is_keplerian(self) -> bool:
         """True when no perturbations are active (pure two-body propagation)."""
-        return (
-            self.geopotential_degree == 0
-            and not self.third_body
-            and self.srp_cr_area_over_mass is None
-            and self.drag_cd_area_over_mass is None
-        )
-
-    @classmethod
-    def rung_keplerian(cls) -> PhysicsConfig:
-        """Point-mass / Keplerian — no perturbations (Rung 1 baseline)."""
-        return cls()
-
-    @classmethod
-    def rung_2a(cls) -> PhysicsConfig:
-        """Zonal J2 geopotential only — degree 2, order 0 (Rung 2a)."""
-        return cls(geopotential_degree=2, geopotential_order=0)
-
-    @classmethod
-    def rung_2b(cls) -> PhysicsConfig:
-        """J2 + third-body Sun and Moon (Rung 2b)."""
-        return cls(geopotential_degree=2, third_body=True)
-
-    @classmethod
-    def rung_2c(cls, cr_area_over_mass: float = 0.02) -> PhysicsConfig:
-        """J2 + third-body + SRP cannonball (Rung 2c).
-
-        cr_area_over_mass: Cr·(A/m) [m²/kg].
-        """
-        return cls(
-            geopotential_degree=2,
-            third_body=True,
-            srp_cr_area_over_mass=cr_area_over_mass,
-        )
-
-    @classmethod
-    def rung_2d(
-        cls,
-        cr_area_over_mass: float = 0.02,
-        cd_area_over_mass: float = 0.04,
-    ) -> PhysicsConfig:
-        """Full force model: J2 + third-body + SRP + drag (Rung 2d).
-
-        cr_area_over_mass: Cr·(A/m) [m²/kg].
-        cd_area_over_mass: Cd·(A/m) [m²/kg].
-        """
-        return cls(
-            geopotential_degree=2,
-            third_body=True,
-            srp_cr_area_over_mass=cr_area_over_mass,
-            drag_cd_area_over_mass=cd_area_over_mass,
-        )
+        return not self.perturbations

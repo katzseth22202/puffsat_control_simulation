@@ -1,7 +1,12 @@
-"""Rung A truth model: Keplerian propagation of the PuffSat reference orbit.
+"""Truth-model runner: reference-orbit checks and per-force signature reports.
 
-Verifies the Orekit / JVM bridge and the reference orbit parameters before
-perturbation force models are added (Rung A of the design doc build ladder).
+Exercises the Orekit / JVM bridge and the reference orbit, then reports each
+perturbation's signature against its analytic prediction as forces are added
+one at a time (design-doc Stage 1 physics ladder: two-body → J2 → third-body →
+SRP → drag).
+
+These functions PRINT — they are a human-readable demo, not the verification
+surface.  The assertions live in ``tests/integration/test_propagator_physics.py``.
 
 Run with:
     make run
@@ -21,21 +26,24 @@ import math
 from datetime import UTC, datetime
 from typing import Final
 
+from puffsat_sim import presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
-from puffsat_sim.orbital_math import (
-    _EARTH_RADIUS_M,
-    drag_deceleration,
+from puffsat_sim.constants import EARTH_RADIUS_M
+from puffsat_sim.forces import AtmosphericDrag, SolarRadiation
+from puffsat_sim.forces.drag import drag_deceleration
+from puffsat_sim.forces.geopotential import (
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
+)
+from puffsat_sim.forces.srp import srp_acceleration
+from puffsat_sim.forces.third_body import lunar_tidal_ratio, solar_tidal_ratio
+from puffsat_sim.orbital_math import (
     keplerian_elements,
     keplerian_period,
-    lunar_tidal_ratio,
-    orbital_config_from_cities,
     perigee_speed,
-    solar_tidal_ratio,
-    srp_acceleration,
     wrap_to_pi,
 )
+from puffsat_sim.orbital_plane import orbital_config_from_cities
 
 # Importing propagator starts the JVM and loads Orekit data.
 # All org.orekit.* imports must follow this line.
@@ -113,7 +121,7 @@ def propagate_one_period(orbital_config: OrbitalConfig, physics_config: PhysicsC
         + (vel.getZ() - v_0.getZ()) ** 2
     )
 
-    print("PuffSat Control Simulation — Rung A: Keplerian reference orbit")
+    print("PuffSat Control Simulation — truth model: Keplerian reference orbit")
     print("  Orekit / JVM : OK")
     print()
     print("  Reference orbit (near-term architecture):")
@@ -178,20 +186,20 @@ def propagate_to_interception(
     print(f"    Speed at interception  : {v / 1e3:.3f} km/s")
 
 
-def validate_j2_signatures(orbital_config: OrbitalConfig) -> None:
+def report_j2_signatures(orbital_config: OrbitalConfig) -> None:
     """Propagate one period with J2 and compare ΔRAAN / Δω against analytic predictions.
 
     Checks that the NumericalPropagator + HolmesFeatherstoneAttractionModel (degree 2)
     produces nodal regression and apsidal precession rates consistent with the
-    first-order J2 secular formulas in orbital_math.  Agreement within ~1% confirms
-    the force model, integrator tolerances, and rate formulas are mutually consistent.
+    first-order J2 secular formulas.  Agreement within ~1% confirms the force model,
+    integrator tolerances, and rate formulas are mutually consistent.
     """
     a, e = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
     i = orbital_config.inclination_rad
 
     epoch = _to_absolute_date(orbital_config.epoch)
-    propagator = build_propagator(orbital_config, PhysicsConfig.rung_2a())
+    propagator = build_propagator(orbital_config, presets.j2())
 
     initial_state = propagator.getInitialState()
     initial_orbit = KeplerianOrbit(initial_state.getOrbit())
@@ -216,7 +224,7 @@ def validate_j2_signatures(orbital_config: OrbitalConfig) -> None:
     pct_raan = abs(d_raan_num - d_raan_analytic) / abs(d_raan_analytic) * 100.0
     pct_omega = abs(d_omega_num - d_omega_analytic) / abs(d_omega_analytic) * 100.0
 
-    print("  J2 signature validation (Rung 2a):")
+    print("  J2 signature report (geopotential degree 2):")
     print(
         f"    ΔRAAN  numeric: {d_raan_num:+.4f}°  "
         f"analytic: {d_raan_analytic:+.4f}°  agree: {100.0 - pct_raan:.2f}%"
@@ -227,8 +235,8 @@ def validate_j2_signatures(orbital_config: OrbitalConfig) -> None:
     )
 
 
-def validate_third_body_signatures(orbital_config: OrbitalConfig) -> None:
-    """Verify third-body Sun + Moon perturbations (Rung 2b).
+def report_third_body_signatures(orbital_config: OrbitalConfig) -> None:
+    """Report third-body Sun + Moon perturbations.
 
     Confirms that ThirdBodyAttraction is active by comparing one-period
     propagation with J2-only vs J2+Sun+Moon, then reports the analytic tidal
@@ -244,28 +252,28 @@ def validate_third_body_signatures(orbital_config: OrbitalConfig) -> None:
         pv = state.getPVCoordinates().getPosition()
         return float(pv.getX()), float(pv.getY()), float(pv.getZ())
 
-    pos_j2 = _final_pos(PhysicsConfig.rung_2a())
-    pos_j2_tb = _final_pos(PhysicsConfig.rung_2b())
+    pos_j2 = _final_pos(presets.j2())
+    pos_j2_tb = _final_pos(presets.j2_third_body())
 
     dr = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos_j2, pos_j2_tb, strict=True)))
 
     moon_pct = lunar_tidal_ratio(orbital_config.apogee_alt_m) * 100.0
     sun_pct = solar_tidal_ratio(orbital_config.apogee_alt_m) * 100.0
 
-    print("  Third-body signature validation (Rung 2b):")
+    print("  Third-body signature report (Sun + Moon):")
     print(f"    Tidal ratio at apogee  — Moon: {moon_pct:.3f}%  Sun: {sun_pct:.3f}%")
     print(f"    One-period position drift (J2 → J2+Sun+Moon): {dr / 1e3:.3f} km")
 
 
-def validate_srp_signatures(orbital_config: OrbitalConfig) -> None:
-    """Verify SRP cannonball force model and shadow/eclipse detection (Rung 2c).
+def report_srp_signatures(orbital_config: OrbitalConfig) -> None:
+    """Report SRP cannonball force model and shadow/eclipse detection.
 
     Confirms SRP is active by comparing one-period propagation with J2+third_body
     vs J2+third_body+SRP, then counts eclipse entry/exit events using EclipseDetector
     to verify the cylindrical shadow model is wired.  Prints the analytic SRP
     acceleration at 1 AU as the order-of-magnitude benchmark.
     """
-    physics_2c = PhysicsConfig.rung_2c()
+    physics_srp = presets.j2_third_body_srp()
     a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
     epoch = _to_absolute_date(orbital_config.epoch)
@@ -276,10 +284,10 @@ def validate_srp_signatures(orbital_config: OrbitalConfig) -> None:
         pv = state.getPVCoordinates().getPosition()
         return float(pv.getX()), float(pv.getY()), float(pv.getZ())
 
-    pos_2b = _final_pos(PhysicsConfig.rung_2b())
-    pos_2c = _final_pos(physics_2c)
+    pos_tb = _final_pos(presets.j2_third_body())
+    pos_srp = _final_pos(physics_srp)
     dr = math.sqrt(
-        sum((a - b) ** 2 for a, b in zip(pos_2b, pos_2c, strict=True))
+        sum((a - b) ** 2 for a, b in zip(pos_tb, pos_srp, strict=True))
     )
 
     # Eclipse detection: count shadow entry/exit crossings during one period.
@@ -289,7 +297,7 @@ def validate_srp_signatures(orbital_config: OrbitalConfig) -> None:
         Constants.WGS84_EARTH_FLATTENING,
         FramesFactory.getITRF(IERSConventions.IERS_2010, True),
     )
-    eclipse_prop = build_propagator(orbital_config, physics_2c)
+    eclipse_prop = build_propagator(orbital_config, physics_srp)
     logger: EventsLogger = EventsLogger()  # type: ignore[no-untyped-call]
     # EclipseDetector defaults to StopOnIncreasing, which would halt the arc at
     # the first umbra exit; ContinueOnEvent lets it log every crossing across the
@@ -304,28 +312,28 @@ def validate_srp_signatures(orbital_config: OrbitalConfig) -> None:
     eclipse_prop.propagate(epoch.shiftedBy(period))
     n_eclipse = len(logger.getLoggedEvents())
 
-    cr_am = physics_2c.srp_cr_area_over_mass
-    assert cr_am is not None
+    srp_spec = next(p for p in physics_srp.perturbations if isinstance(p, SolarRadiation))
+    cr_am = srp_spec.cr_area_over_mass
     accel = srp_acceleration(cr_am)
 
-    print("  SRP signature validation (Rung 2c):")
+    print("  SRP signature report (cannonball):")
     print(f"    Analytic SRP accel (1 AU, Cr·A/m={cr_am}): {accel:.3e} m/s²")
     print(f"    One-period divergence (J2+3body → +SRP): {dr / 1e3:.3f} km")
     print(f"    Eclipse crossings detected in one period: {n_eclipse}")
 
 
-def validate_drag_signatures(orbital_config: OrbitalConfig) -> None:
-    """Verify NRLMSISE-00 atmospheric drag (Rung 2d).
+def report_drag_signatures(orbital_config: OrbitalConfig) -> None:
+    """Report NRLMSISE-00 atmospheric drag.
 
-    Propagates from apogee to the 200 km descent crossing with SRP-only (rung_2c)
-    and full-force (rung_2d).  The difference in orbital specific energy at that
-    altitude confirms drag is removing energy during the terminal descent; the
-    analytic deceleration at key altitudes gives the expected order of magnitude.
+    Propagates from apogee to the 200 km descent crossing with SRP-only and
+    full-force.  The difference in orbital specific energy at that altitude
+    confirms drag is removing energy during the terminal descent; the analytic
+    deceleration at key altitudes gives the expected order of magnitude.
 
-    Design doc §4: drag "bites below ~300-400 km" — validated by comparing
-    energy at 200 km (interception altitude) with and without drag.
+    Design doc §4: drag "bites below ~300-400 km" — shown by comparing energy at
+    200 km (interception altitude) with and without drag.
     """
-    physics_2d = PhysicsConfig.rung_2d()
+    physics_full = presets.full_force()
     a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
     mu: float = float(Constants.WGS84_EARTH_MU)
@@ -355,39 +363,39 @@ def validate_drag_signatures(orbital_config: OrbitalConfig) -> None:
     # Both arcs stop at the same 200 km altitude (the event fixes position and time),
     # so the meaningful drag signatures are the loss of specific orbital energy and the
     # resulting speed reduction at the crossing — not the position, which barely moves.
-    energy_2c, speed_2c = _energy_and_speed_at_200km(PhysicsConfig.rung_2c())
-    energy_2d, speed_2d = _energy_and_speed_at_200km(physics_2d)
-    d_energy = energy_2d - energy_2c
-    d_speed = speed_2d - speed_2c
+    energy_srp, speed_srp = _energy_and_speed_at_200km(presets.j2_third_body_srp())
+    energy_full, speed_full = _energy_and_speed_at_200km(physics_full)
+    d_energy = energy_full - energy_srp
+    d_speed = speed_full - speed_srp
 
-    cd_am = physics_2d.drag_cd_area_over_mass
-    assert cd_am is not None
-    v_200 = math.sqrt(mu * (2.0 / (_EARTH_RADIUS_M + 200_000.0) - 1.0 / a))
-    v_300 = math.sqrt(mu * (2.0 / (_EARTH_RADIUS_M + 300_000.0) - 1.0 / a))
+    drag_spec = next(p for p in physics_full.perturbations if isinstance(p, AtmosphericDrag))
+    cd_am = drag_spec.cd_area_over_mass
+    v_200 = math.sqrt(mu * (2.0 / (EARTH_RADIUS_M + 200_000.0) - 1.0 / a))
+    v_300 = math.sqrt(mu * (2.0 / (EARTH_RADIUS_M + 300_000.0) - 1.0 / a))
     a_drag_200 = drag_deceleration(cd_am, v_200, 200_000.0)
     a_drag_300 = drag_deceleration(cd_am, v_300, 300_000.0)
 
-    print("  Drag signature validation (Rung 2d, NRLMSISE-00):")
+    print("  Drag signature report (NRLMSISE-00):")
     print(f"    Analytic drag decel @ 200 km: {a_drag_200:.3e} m/s²")
     print(f"    Analytic drag decel @ 300 km: {a_drag_300:.3e} m/s²")
-    print(f"    Orbital energy at 200 km — no drag: {energy_2c:.1f} J/kg")
-    print(f"    Orbital energy at 200 km — with drag: {energy_2d:.1f} J/kg")
+    print(f"    Orbital energy at 200 km — no drag: {energy_srp:.1f} J/kg")
+    print(f"    Orbital energy at 200 km — with drag: {energy_full:.1f} J/kg")
     print(f"    ΔE from drag: {d_energy:.1f} J/kg  (negative = drag removed energy)")
     print(f"    Speed reduction at 200 km from drag: {d_speed * 100.0:+.3f} cm/s")
 
 
 def main() -> None:
-    propagate_one_period(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
+    propagate_one_period(_NOMINAL_CONFIG, presets.two_body())
     print()
-    propagate_to_interception(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
+    propagate_to_interception(_NOMINAL_CONFIG, presets.two_body())
     print()
-    validate_j2_signatures(_NOMINAL_CONFIG)
+    report_j2_signatures(_NOMINAL_CONFIG)
     print()
-    validate_third_body_signatures(_NOMINAL_CONFIG)
+    report_third_body_signatures(_NOMINAL_CONFIG)
     print()
-    validate_srp_signatures(_NOMINAL_CONFIG)
+    report_srp_signatures(_NOMINAL_CONFIG)
     print()
-    validate_drag_signatures(_NOMINAL_CONFIG)
+    report_drag_signatures(_NOMINAL_CONFIG)
 
 
 if __name__ == "__main__":

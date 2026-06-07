@@ -119,7 +119,7 @@ from orekit.pyhelpers import download_orekit_data_curdir
 download_orekit_data_curdir()   # downloads to current directory; requires internet
 ```
 
-## Run the Rung A truth model
+## Run the truth model
 
 Verify the Orekit / JVM bridge and the reference orbit parameters:
 
@@ -136,7 +136,7 @@ python -m puffsat_sim.truth_model
 Expected output (numbers are exact for Keplerian propagation):
 
 ```
-PuffSat Control Simulation — Rung A: Keplerian reference orbit
+PuffSat Control Simulation — truth model: Keplerian reference orbit
   Orekit / JVM : OK
 
   Reference orbit (near-term architecture):
@@ -144,7 +144,7 @@ PuffSat Control Simulation — Rung A: Keplerian reference orbit
     Apogee altitude  : 150 × 10³ km  (deployment)
     Semi-major axis  : 81403.1 km
     Eccentricity     : 0.921033
-    Inclination      : 70.0°  (great circle through Tokyo and New York)
+    Inclination      : 69.9°  (great circle through Tokyo and New York)
     Orbital period   : 231138.7 s  (2.68 days)
     Perigee speed    : 10.914 km/s
 
@@ -157,7 +157,7 @@ PuffSat Control Simulation — Rung A: Keplerian reference orbit
 
 ```bash
 make all        # mypy + lint + test (CI equivalent)
-make run        # Rung A truth model (reference orbit verification)
+make run        # truth model (reference orbit + per-force signature reports)
 make test       # pytest
 make mypy       # strict type check
 make lint       # ruff check (subsumes flake8/isort/pyupgrade)
@@ -175,17 +175,33 @@ puffsat_control_simulation/
 ├── LICENSE                          # All Rights Reserved
 ├── README.md
 ├── CLAUDE.md                        # context for AI-assisted development
+├── CONTEXT.md                       # domain glossary (Perturbation, Force Model, Preset, Environment)
+├── docs/adr/                        # architecture decision records
 ├── puffsat_control_sim_design.md    # detailed design document (read this first)
 ├── puffsat_sim/
 │   ├── __init__.py
-│   ├── config.py                    # OrbitalConfig + PhysicsConfig dataclasses (pure Python)
-│   ├── orbital_math.py              # Keplerian helpers + orbital_config_from_cities() (pure Python)
-│   ├── propagator.py                # JVM boundary: initVM + build_propagator()
-│   └── truth_model.py               # Rung A runner: reference orbit verification
+│   ├── jvm.py                       # JVM boot seam: import before any org.orekit import
+│   ├── constants.py                 # single source of truth for scalar physical constants (pure)
+│   ├── config.py                    # OrbitalConfig + PhysicsConfig(tuple[Perturbation,...]) (pure)
+│   ├── presets.py                   # named, content-described PhysicsConfig bundles (pure)
+│   ├── forces/                      # one pure module per perturbation (spec + analytic signature)
+│   │   ├── geopotential.py          # Geopotential + J2 secular rates
+│   │   ├── third_body.py            # ThirdBody + tidal ratios
+│   │   ├── srp.py                   # SolarRadiation + srp_acceleration
+│   │   ├── drag.py                  # AtmosphericDrag + std_atm + drag_deceleration
+│   │   └── build.py                 # JVM side: Environment + to_force_models() dispatch
+│   ├── orbital_math.py              # foundational two-body helpers (pure)
+│   ├── orbital_plane.py             # orbital_config_from_cities() great-circle plane builder (pure)
+│   ├── propagator.py                # build_propagator(): attaches the perturbations' force models
+│   └── truth_model.py               # make-run report runner: reference orbit + per-force signatures
 └── tests/
     ├── __init__.py
-    ├── test_config.py               # OrbitalConfig / PhysicsConfig unit tests
-    └── test_orbital_math.py         # orbital mechanics + city-helper unit tests
+    ├── test_config.py               # PhysicsConfig / OrbitalConfig unit tests
+    ├── test_presets.py              # preset content unit tests
+    ├── test_forces.py               # perturbation specs + analytic signatures (no JVM)
+    ├── test_orbital_math.py         # two-body helper unit tests
+    ├── test_orbital_plane.py        # great-circle plane builder unit tests
+    └── integration/                 # live-JVM physics tests (build_propagator, constants pin)
 ```
 
 ## Tooling decisions

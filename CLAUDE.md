@@ -63,6 +63,14 @@ The conda-forge package is `orekit_jpype` (JPype-based), not `orekit` (JCC-based
 Only `orekit_jpype` is available for aarch64/ARM.
 
 ### Initialization order (must not be changed)
+The JVM boot lives in `puffsat_sim/jvm.py`; importing it starts the JVM and loads
+`orekit-data.zip` (once — Python caches the module).  The one ordering rule in the
+codebase: **import `puffsat_sim.jvm` before any `org.orekit` import.**
+```python
+import puffsat_sim.jvm   # boots the JVM; must precede any org.orekit import
+from org.orekit.frames import FramesFactory
+```
+`jvm.py` itself does:
 ```python
 import orekit_jpype
 _VM = orekit_jpype.initVM()   # start JVM — must precede any org.orekit import
@@ -120,6 +128,12 @@ download_orekit_data_curdir()   # downloads to current directory
 - **Rung D:** Monte Carlo (N=10³–10⁴). Measure perigee/miss/propellant
   distributions. This is the result.
 
+> **Naming note:** "Rung" is overloaded in the design doc (a *physics* ladder
+> 0/1/2a–2d and a *control* ladder A–D). Force-model presets are therefore named
+> by **content** (`presets.two_body`, `j2`, `j2_third_body`, `j2_third_body_srp`,
+> `full_force`), never by rung number. See `CONTEXT.md` and
+> `docs/adr/0001-pure-perturbation-specs.md`.
+
 ## Coding conventions
 
 - Python 3.11+; strict mypy; ruff for lint/format.
@@ -170,11 +184,19 @@ make clean     # remove caches
 - `environment.yml` — conda environment (no pip).
 - `pyproject.toml` — tool config only: mypy, ruff, pytest.
 - `Makefile` — task runner.
-- `puffsat_sim/config.py` — `OrbitalConfig` and `PhysicsConfig` dataclasses (pure Python).
-- `puffsat_sim/orbital_math.py` — Keplerian helpers + `orbital_config_from_cities()` (pure Python).
-- `puffsat_sim/propagator.py` — JVM boundary: starts the JVM, exposes `build_propagator()`.
-- `puffsat_sim/truth_model.py` — Rung A runner: reference orbit verification.
-- `tests/` — pytest suite (pure Python; no JVM required).
+- `CONTEXT.md` — domain glossary (Perturbation, Force Model, Preset, Environment).
+- `docs/adr/` — architecture decision records.
+- `puffsat_sim/jvm.py` — the JVM boot seam: import it before any `org.orekit` import.
+- `puffsat_sim/constants.py` — single source of truth for scalar physical constants (pure).
+- `puffsat_sim/config.py` — `OrbitalConfig` and `PhysicsConfig` (a `tuple[Perturbation, ...]`); pure Python.
+- `puffsat_sim/presets.py` — named, content-described `PhysicsConfig` bundles (pure).
+- `puffsat_sim/forces/` — one pure module per perturbation (spec + analytic signature);
+  `forces/build.py` is the JVM side (`Environment` + `to_force_models()` dispatch).
+- `puffsat_sim/orbital_math.py` — foundational two-body helpers only (pure).
+- `puffsat_sim/orbital_plane.py` — `orbital_config_from_cities()` great-circle plane builder (pure).
+- `puffsat_sim/propagator.py` — exposes `build_propagator()`; attaches the perturbations' force models.
+- `puffsat_sim/truth_model.py` — `make run` report runner: reference orbit + per-force signatures.
+- `tests/` — pure-Python unit suite (no JVM); `tests/integration/` requires a live JVM.
 
 ## License
 

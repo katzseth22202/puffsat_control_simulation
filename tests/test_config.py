@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
+from puffsat_sim.forces import Geopotential, SolarRadiation, ThirdBody
 
 _EPOCH = datetime(2026, 6, 2, tzinfo=UTC)
 
@@ -14,64 +15,28 @@ class TestPhysicsConfigIsKeplerian:
     def test_default_is_keplerian(self) -> None:
         assert PhysicsConfig().is_keplerian
 
-    def test_rung_keplerian_is_keplerian(self) -> None:
-        assert PhysicsConfig.rung_keplerian().is_keplerian
+    def test_empty_perturbations_is_keplerian(self) -> None:
+        assert PhysicsConfig(()).is_keplerian
 
-    def test_nonzero_geopotential_not_keplerian(self) -> None:
-        assert not PhysicsConfig(geopotential_degree=2).is_keplerian
+    def test_geopotential_not_keplerian(self) -> None:
+        assert not PhysicsConfig((Geopotential(degree=2),)).is_keplerian
 
     def test_third_body_not_keplerian(self) -> None:
-        assert not PhysicsConfig(third_body=True).is_keplerian
+        assert not PhysicsConfig((ThirdBody(),)).is_keplerian
 
-    def test_srp_enabled_not_keplerian(self) -> None:
-        assert not PhysicsConfig(srp_cr_area_over_mass=0.02).is_keplerian
-
-    def test_drag_enabled_not_keplerian(self) -> None:
-        assert not PhysicsConfig(drag_cd_area_over_mass=0.04).is_keplerian
+    def test_srp_not_keplerian(self) -> None:
+        assert not PhysicsConfig((SolarRadiation(cr_area_over_mass=0.02),)).is_keplerian
 
 
-class TestPhysicsConfigClassMethods:
-    def test_rung_2a_geopotential_only(self) -> None:
-        cfg = PhysicsConfig.rung_2a()
-        assert cfg.geopotential_degree == 2
-        assert cfg.geopotential_order == 0  # zonal J2 only, no tesseral terms
-        assert not cfg.third_body
-        assert cfg.srp_cr_area_over_mass is None
-        assert cfg.drag_cd_area_over_mass is None
+class TestPhysicsConfigPerturbations:
+    def test_holds_perturbations_in_order(self) -> None:
+        cfg = PhysicsConfig((Geopotential(degree=2), ThirdBody()))
+        assert cfg.perturbations == (Geopotential(degree=2), ThirdBody())
 
-    def test_rung_2b_adds_third_body(self) -> None:
-        cfg = PhysicsConfig.rung_2b()
-        assert cfg.geopotential_degree == 2
-        assert cfg.third_body
-
-    def test_rung_2c_custom_cr(self) -> None:
-        cfg = PhysicsConfig.rung_2c(cr_area_over_mass=0.05)
-        assert cfg.srp_cr_area_over_mass == pytest.approx(0.05)
-        assert cfg.third_body
-        assert cfg.drag_cd_area_over_mass is None
-
-    def test_rung_2d_full_model(self) -> None:
-        cfg = PhysicsConfig.rung_2d(cr_area_over_mass=0.05, cd_area_over_mass=0.08)
-        assert cfg.srp_cr_area_over_mass == pytest.approx(0.05)
-        assert cfg.drag_cd_area_over_mass == pytest.approx(0.08)
-        assert cfg.third_body
-        assert cfg.geopotential_degree == 2
-
-    def test_rung_2d_not_keplerian(self) -> None:
-        assert not PhysicsConfig.rung_2d().is_keplerian
-
-
-class TestPhysicsConfigGeopotentialOrder:
-    def test_default_order_is_zonal(self) -> None:
-        assert PhysicsConfig().geopotential_order == 0
-
-    def test_order_may_equal_degree(self) -> None:
-        cfg = PhysicsConfig(geopotential_degree=4, geopotential_order=4)
-        assert cfg.geopotential_order == 4
-
-    def test_order_exceeding_degree_raises(self) -> None:
-        with pytest.raises(ValueError, match="cannot exceed"):
-            PhysicsConfig(geopotential_degree=2, geopotential_order=3)
+    def test_immutable(self) -> None:
+        cfg = PhysicsConfig((Geopotential(degree=2),))
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            cfg.perturbations = ()  # type: ignore[misc]
 
 
 class TestOrbitalConfigFrozen:
