@@ -36,6 +36,11 @@ select = [
 ignore = [
     "E402",   # module-level import not at top of file — unavoidable with Orekit's
               # JVM-init-before-import pattern (initVM() must precede org.orekit imports)
+    "I001",   # import block un-sorted — org.orekit (third-party) must follow the
+              # first-party puffsat_sim.propagator import that starts the JVM; isort
+              # cannot express this ordering constraint
+    "ANN401", # typing.Any disallowed — necessary at the JVM/Python boundary where
+              # Orekit objects have no type stubs
 ]
 
 # ---------------------------------------------------------------------------

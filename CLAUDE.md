@@ -170,8 +170,11 @@ make clean     # remove caches
 - `environment.yml` — conda environment (no pip).
 - `pyproject.toml` — tool config only: mypy, ruff, pytest.
 - `Makefile` — task runner.
-- `puffsat_sim/truth_model.py` — Rung A: Keplerian truth propagation; JVM bridge and reference orbit verification.
-- `tests/` — pytest suite.
+- `puffsat_sim/config.py` — `OrbitalConfig` and `PhysicsConfig` dataclasses (pure Python).
+- `puffsat_sim/orbital_math.py` — Keplerian helpers + `orbital_config_from_cities()` (pure Python).
+- `puffsat_sim/propagator.py` — JVM boundary: starts the JVM, exposes `build_propagator()`.
+- `puffsat_sim/truth_model.py` — Rung A runner: reference orbit verification.
+- `tests/` — pytest suite (pure Python; no JVM required).
 
 ## License
 

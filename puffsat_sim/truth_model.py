@@ -18,88 +18,80 @@ The orbit used matches the near-term architecture from the paper:
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from typing import Final
 
-# orekit_jpype is the conda-forge JPype-based Orekit wrapper.
-# orekit_jpype and org.orekit.* have no type stubs; mypy suppresses all errors
-# for these modules via the overrides in pyproject.toml.  Our own code is fully typed.
-import orekit_jpype
+from puffsat_sim.config import OrbitalConfig, PhysicsConfig
+from puffsat_sim.orbital_math import (
+    keplerian_elements,
+    keplerian_period,
+    orbital_config_from_cities,
+    perigee_speed,
+)
 
-_VM = orekit_jpype.initVM(
-    vmargs="--enable-native-access=ALL-UNNAMED"
-)  # start the JVM — must precede any org.orekit import
-
-from orekit_jpype.pyhelpers import setup_orekit_curdir
-
-# setup_orekit_curdir looks for orekit-data.zip in the current working directory.
-# Run `make data` from the project root once to download it.
-setup_orekit_curdir()
+# Importing propagator starts the JVM and loads Orekit data.
+# All org.orekit.* imports must follow this line.
+from puffsat_sim.propagator import build_propagator  # noqa: E402
 
 from org.orekit.bodies import OneAxisEllipsoid
 from org.orekit.frames import FramesFactory
-from org.orekit.orbits import KeplerianOrbit, PositionAngleType
-from org.orekit.propagation.analytical import KeplerianPropagator
 from org.orekit.propagation.events import AltitudeDetector
 from org.orekit.propagation.events.handlers import StopOnDecreasing
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
 from org.orekit.utils import Constants, IERSConventions
 
-from puffsat_sim.orbital_math import keplerian_elements, perigee_speed
-
 # ---------------------------------------------------------------------------
-# Orbital parameters — near-term PuffSat architecture (paper §2 / design doc §3)
+# Mission constants — fixed across all runs and Monte Carlo draws
 # ---------------------------------------------------------------------------
 
-# Orbit periapsis: 50 km — intentionally below the Kármán line so the PuffSat
-# burns up after impact (debris disposal).  Interception occurs at 200 km during
-# descent, before this periapsis is reached (design doc §3).
-_PERIGEE_ALT_M: Final[float] = 50_000.0
+_PERIGEE_ALT_M: Final[float] = 50_000.0        # orbit periapsis [m]; debris disposal below Kármán
+_APOGEE_ALT_M: Final[float] = 150_000_000.0    # deployment apogee [m]
+_INTERCEPTION_ALT_M: Final[float] = 200_000.0  # control target: 200 km descent crossing
 
-# Deployment apogee: design doc recommends ~150 000 km altitude as a balance
-# between perigee-speed (~10.8 km/s, nearly independent of apogee) and
-# controllability (solar tidal force <0.1% of Earth gravity at apogee).
-_APOGEE_ALT_M: Final[float] = 150_000_000.0
+# ---------------------------------------------------------------------------
+# Nominal orbital plane — defined by a great circle through two surface points.
+#
+# The specific cities are arbitrary: we want a realistic mid-to-high inclination
+# (~70°) for the perturbation study.  Ground tracks are not modelled and the
+# simulation is not sensitive to which locations are used — only the resulting
+# inclination and RAAN matter.  The epoch sets the RAAN via GMST.
+# ---------------------------------------------------------------------------
 
-# Interception altitude: 200 km during descent, before the 50 km periapsis.
-# This is the control target for the simulation (design doc §1, §6.3, §10.3).
-_INTERCEPTION_ALT_M: Final[float] = 200_000.0
+_TOKYO: Final[tuple[float, float]] = (35.6762, 139.6503)    # (lat°N, lon°E)
+_NEW_YORK: Final[tuple[float, float]] = (40.7128, -74.0060)  # (lat°N, lon°W)
+_EPOCH: Final[datetime] = datetime(2026, 6, 2, 0, 0, 0, tzinfo=UTC)
+
+_NOMINAL_CONFIG: Final[OrbitalConfig] = orbital_config_from_cities(
+    *_TOKYO,
+    *_NEW_YORK,
+    epoch=_EPOCH,
+    perigee_alt_m=_PERIGEE_ALT_M,
+    apogee_alt_m=_APOGEE_ALT_M,
+)
 
 
-def propagate_one_period() -> None:
-    """Propagate the PuffSat reference orbit for one Keplerian period."""
+def _to_absolute_date(dt: datetime) -> AbsoluteDate:
     utc = TimeScalesFactory.getUTC()
-    frame = FramesFactory.getEME2000()
-    mu: float = Constants.WGS84_EARTH_MU
+    return AbsoluteDate(dt.year, dt.month, dt.day, dt.hour, dt.minute, float(dt.second), utc)
 
-    a, e = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
 
-    # Start at apogee (mean anomaly = π) so the clock ticks from deployment
-    # toward interception — more representative of the mission timeline.
-    epoch = AbsoluteDate(2026, 1, 1, 0, 0, 0.0, utc)
-    orbit = KeplerianOrbit(
-        a,
-        e,
-        math.radians(28.5),   # inclination: mid-latitude launch site
-        math.radians(0.0),    # RAAN
-        math.radians(0.0),    # argument of perigee
-        math.radians(180.0),  # mean anomaly = π → start at apogee
-        PositionAngleType.MEAN,
-        frame,
-        epoch,
-        mu,
-    )
+def propagate_one_period(orbital_config: OrbitalConfig, physics_config: PhysicsConfig) -> None:
+    """Propagate the PuffSat reference orbit for one Keplerian period."""
+    a, e = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
+    v_perigee = perigee_speed(a, orbital_config.perigee_alt_m)
 
-    period: float = orbit.getKeplerianPeriod()
-    v_perigee: float = perigee_speed(a, _PERIGEE_ALT_M)
+    epoch = _to_absolute_date(orbital_config.epoch)
+    propagator = build_propagator(orbital_config, physics_config)
+    initial_pv = propagator.getInitialState().getPVCoordinates()
+    r_0 = initial_pv.getPosition()
+    v_0 = initial_pv.getVelocity()
 
-    propagator = KeplerianPropagator(orbit)
     final_state = propagator.propagate(epoch.shiftedBy(period))
     pos = final_state.getPVCoordinates().getPosition()
     vel = final_state.getPVCoordinates().getVelocity()
 
     # Residual after one Keplerian period (should be ~floating-point zero)
-    r_0 = orbit.getPVCoordinates().getPosition()
-    v_0 = orbit.getPVCoordinates().getVelocity()
     dr = math.sqrt(
         (pos.getX() - r_0.getX()) ** 2
         + (pos.getY() - r_0.getY()) ** 2
@@ -116,13 +108,13 @@ def propagate_one_period() -> None:
     print()
     print("  Reference orbit (near-term architecture):")
     print(
-        f"    Orbit periapsis  : {_PERIGEE_ALT_M / 1e3:.0f} km"
+        f"    Orbit periapsis  : {orbital_config.perigee_alt_m / 1e3:.0f} km"
         "  (burns up here; interception at 200 km during descent)"
     )
-    print(f"    Apogee altitude  : {_APOGEE_ALT_M / 1e6:.0f} × 10³ km  (deployment)")
+    print(f"    Apogee altitude  : {orbital_config.apogee_alt_m / 1e6:.0f} × 10³ km  (deployment)")
     print(f"    Semi-major axis  : {a / 1e3:.1f} km")
     print(f"    Eccentricity     : {e:.6f}")
-    print("    Inclination      : 28.5°")
+    print(f"    Inclination      : {math.degrees(orbital_config.inclination_rad):.1f}°")
     print(f"    Orbital period   : {period:.1f} s  ({period / 86400:.2f} days)")
     print(f"    Perigee speed    : {v_perigee / 1e3:.3f} km/s")
     print()
@@ -131,7 +123,9 @@ def propagate_one_period() -> None:
     print(f"    |Δv| = {dv:.3e} m/s")
 
 
-def propagate_to_interception() -> None:
+def propagate_to_interception(
+    orbital_config: OrbitalConfig, physics_config: PhysicsConfig
+) -> None:
     """Propagate from apogee, stopping at the 200 km descent crossing (interception).
 
     Uses AltitudeDetector with StopOnDecreasing: the g-function is
@@ -139,24 +133,12 @@ def propagate_to_interception() -> None:
     Starting at apogee, the first zero-crossing is the descending one, so no
     additional filtering is needed.
     """
-    utc = TimeScalesFactory.getUTC()
     frame = FramesFactory.getEME2000()
-    mu: float = Constants.WGS84_EARTH_MU
+    a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
 
-    a, e = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
-    epoch = AbsoluteDate(2026, 1, 1, 0, 0, 0.0, utc)
-    orbit = KeplerianOrbit(
-        a,
-        e,
-        math.radians(28.5),
-        math.radians(0.0),
-        math.radians(0.0),
-        math.radians(180.0),  # mean anomaly = π → start at apogee
-        PositionAngleType.MEAN,
-        frame,
-        epoch,
-        mu,
-    )
+    epoch = _to_absolute_date(orbital_config.epoch)
+    propagator = build_propagator(orbital_config, physics_config)
 
     # WGS84 ellipsoid in the Earth-fixed frame — used by AltitudeDetector to
     # compute geodetic altitude above the surface.
@@ -168,9 +150,6 @@ def propagate_to_interception() -> None:
     detector = AltitudeDetector(_INTERCEPTION_ALT_M, earth).withHandler(
         StopOnDecreasing()  # type: ignore[no-untyped-call]
     )
-
-    period: float = orbit.getKeplerianPeriod()
-    propagator = KeplerianPropagator(orbit)
     propagator.addEventDetector(detector)
 
     # Upper bound is one full period; event fires ~halfway through (apo → peri descent).
@@ -179,9 +158,7 @@ def propagate_to_interception() -> None:
     elapsed: float = final_state.getDate().durationFrom(epoch)
     pos = final_state.getPVCoordinates().getPosition()
     vel = final_state.getPVCoordinates().getVelocity()
-    v: float = math.sqrt(
-        vel.getX() ** 2 + vel.getY() ** 2 + vel.getZ() ** 2
-    )
+    v: float = math.sqrt(vel.getX() ** 2 + vel.getY() ** 2 + vel.getZ() ** 2)
     geodetic = earth.transform(pos, frame, final_state.getDate())
     alt_km: float = geodetic.getAltitude() / 1e3
 
@@ -192,9 +169,9 @@ def propagate_to_interception() -> None:
 
 
 def main() -> None:
-    propagate_one_period()
+    propagate_one_period(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
     print()
-    propagate_to_interception()
+    propagate_to_interception(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
 
 
 if __name__ == "__main__":

@@ -144,7 +144,7 @@ PuffSat Control Simulation — Rung A: Keplerian reference orbit
     Apogee altitude  : 150 × 10³ km  (deployment)
     Semi-major axis  : 81403.1 km
     Eccentricity     : 0.921033
-    Inclination      : 28.5°
+    Inclination      : 70.0°  (great circle through Tokyo and New York)
     Orbital period   : 231138.7 s  (2.68 days)
     Perigee speed    : 10.914 km/s
 
@@ -178,10 +178,14 @@ puffsat_control_simulation/
 ├── puffsat_control_sim_design.md    # detailed design document (read this first)
 ├── puffsat_sim/
 │   ├── __init__.py
-│   ├── orbital_math.py              # pure-Python Keplerian helpers (no JVM)
-│   └── truth_model.py               # Rung A: Keplerian propagation, reference orbit verification
+│   ├── config.py                    # OrbitalConfig + PhysicsConfig dataclasses (pure Python)
+│   ├── orbital_math.py              # Keplerian helpers + orbital_config_from_cities() (pure Python)
+│   ├── propagator.py                # JVM boundary: initVM + build_propagator()
+│   └── truth_model.py               # Rung A runner: reference orbit verification
 └── tests/
-    └── __init__.py
+    ├── __init__.py
+    ├── test_config.py               # OrbitalConfig / PhysicsConfig unit tests
+    └── test_orbital_math.py         # orbital mechanics + city-helper unit tests
 ```
 
 ## Tooling decisions
