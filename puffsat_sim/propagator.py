@@ -24,9 +24,12 @@ setup_orekit_curdir()  # loads orekit-data.zip from the current working director
 
 from org.hipparchus.ode.nonstiff import DormandPrince853Integrator
 from org.orekit.bodies import CelestialBodyFactory, OneAxisEllipsoid
+from org.orekit.forces.drag import DragForce, IsotropicDrag
 from org.orekit.forces.gravity import HolmesFeatherstoneAttractionModel, ThirdBodyAttraction
 from org.orekit.forces.gravity.potential import GravityFieldFactory
 from org.orekit.forces.radiation import IsotropicRadiationSingleCoefficient, SolarRadiationPressure
+from org.orekit.models.earth.atmosphere import NRLMSISE00
+from org.orekit.models.earth.atmosphere.data import CssiSpaceWeatherData
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import KeplerianOrbit, OrbitType, PositionAngleType
 from org.orekit.propagation import SpacecraftState
@@ -129,6 +132,19 @@ def _build_numerical_propagator(orbit: Any, physics_config: PhysicsConfig) -> An
         propagator.addForceModel(SolarRadiationPressure(sun, earth_ellipsoid, srp_model))
 
     if physics_config.drag_cd_area_over_mass is not None:
-        raise NotImplementedError("Drag force model not yet implemented (Rung 2d).")
+        # NRLMSISE-00 driven by real/predicted CSSI space weather (covers 1957–2096).
+        # PhysicsConfig.f10p7 / .ap are reserved for the Monte Carlo per-run
+        # multiplicative bias applied on top of this nominal model (Rung D).
+        earth_drag = OneAxisEllipsoid(
+            Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
+            Constants.WGS84_EARTH_FLATTENING,
+            itrf,
+        )
+        sun = CelestialBodyFactory.getSun()
+        sw = CssiSpaceWeatherData("SpaceWeather-All-v1.2.txt")
+        atmosphere = NRLMSISE00(sw, sun, earth_drag)
+        # Same mass=1.0 convention as SRP: cd_area_over_mass = Cd·(A/m) with Cd=1.
+        drag_model = IsotropicDrag(physics_config.drag_cd_area_over_mass, 1.0)
+        propagator.addForceModel(DragForce(atmosphere, drag_model))
 
     return propagator

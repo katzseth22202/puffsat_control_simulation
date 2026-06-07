@@ -6,6 +6,7 @@ import pytest
 
 from puffsat_sim.config import OrbitalConfig
 from puffsat_sim.orbital_math import (
+    drag_deceleration,
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
     keplerian_elements,
@@ -15,6 +16,7 @@ from puffsat_sim.orbital_math import (
     perigee_speed,
     solar_tidal_ratio,
     srp_acceleration,
+    std_atm_density,
     tidal_acceleration_ratio,
 )
 
@@ -175,6 +177,58 @@ class TestJ2Rates:
     def test_polar_orbit_zero_nodal_regression(self) -> None:
         rate = j2_nodal_regression_rate(self._A, self._E, math.radians(90.0))
         assert abs(rate) < 1e-16, "Polar orbit (i=90°) must have zero nodal regression"
+
+
+class TestDragDeceleration:
+    """Verify piecewise-exponential atmosphere and drag deceleration helper.
+
+    Calibrated to NRLMSISE-00 at moderate solar activity (F10.7≈150, Ap≈15).
+    Design doc §4: drag "bites below ~300-400 km."
+    """
+
+    _CD_AM = 0.04    # rung_2d default Cd·(A/m) [m²/kg]
+    _V_10KMS = 10_000.0
+
+    def test_density_decreases_with_altitude(self) -> None:
+        assert std_atm_density(200_000) > std_atm_density(300_000)
+        assert std_atm_density(300_000) > std_atm_density(500_000)
+
+    def test_density_at_200km_matches_nrlmsise(self) -> None:
+        # NRLMSISE-00 at 200 km, F10.7=150, Ap=15 ≈ 2.5e-10 kg/m³
+        rho = std_atm_density(200_000)
+        assert 1e-10 < rho < 5e-10
+
+    def test_density_at_surface_approx_1kg_m3(self) -> None:
+        assert std_atm_density(0) == pytest.approx(1.225, rel=0.01)
+
+    def test_drag_zero_cd_am(self) -> None:
+        assert drag_deceleration(0.0, self._V_10KMS, 200_000) == pytest.approx(0.0)
+
+    def test_drag_scales_with_speed_squared(self) -> None:
+        a1 = drag_deceleration(self._CD_AM, 10_000.0, 200_000)
+        a2 = drag_deceleration(self._CD_AM, 20_000.0, 200_000)
+        assert a2 == pytest.approx(4.0 * a1, rel=1e-9)
+
+    def test_drag_scales_with_cd_am(self) -> None:
+        a1 = drag_deceleration(0.04, self._V_10KMS, 200_000)
+        a2 = drag_deceleration(0.08, self._V_10KMS, 200_000)
+        assert a2 == pytest.approx(2.0 * a1, rel=1e-9)
+
+    def test_drag_at_200km_order_of_magnitude(self) -> None:
+        # a_drag = 0.5 * 2.5e-10 * (10000)^2 * 0.04 ≈ 5e-4 m/s²
+        a = drag_deceleration(self._CD_AM, self._V_10KMS, 200_000)
+        assert 1e-4 < a < 5e-3
+
+    def test_drag_at_300km_much_smaller_than_200km(self) -> None:
+        a_200 = drag_deceleration(self._CD_AM, self._V_10KMS, 200_000)
+        a_300 = drag_deceleration(self._CD_AM, self._V_10KMS, 300_000)
+        # Density ratio ~30×, so drag ratio should be ~30×
+        assert a_200 / a_300 > 10
+
+    def test_drag_at_1000km_negligible(self) -> None:
+        # Above ~800 km drag is negligible (<1e-8 m/s²) for any reasonable Cd·A/m
+        a = drag_deceleration(self._CD_AM, self._V_10KMS, 1_000_000)
+        assert a < 1e-8
 
 
 class TestSrpAcceleration:

@@ -23,6 +23,8 @@ from typing import Final
 
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.orbital_math import (
+    _EARTH_RADIUS_M,
+    drag_deceleration,
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
     keplerian_elements,
@@ -302,6 +304,67 @@ def validate_srp_signatures(orbital_config: OrbitalConfig) -> None:
     print(f"    Eclipse crossings detected in one period: {n_eclipse}")
 
 
+def validate_drag_signatures(orbital_config: OrbitalConfig) -> None:
+    """Verify NRLMSISE-00 atmospheric drag (Rung 2d).
+
+    Propagates from apogee to the 200 km descent crossing with SRP-only (rung_2c)
+    and full-force (rung_2d).  The difference in orbital specific energy at that
+    altitude confirms drag is removing energy during the terminal descent; the
+    analytic deceleration at key altitudes gives the expected order of magnitude.
+
+    Design doc §4: drag "bites below ~300-400 km" — validated by comparing
+    energy at 200 km (interception altitude) with and without drag.
+    """
+    physics_2d = PhysicsConfig.rung_2d()
+    a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
+    mu: float = float(Constants.WGS84_EARTH_MU)
+
+    def _energy_at_200km(physics_config: PhysicsConfig) -> tuple[float, tuple[float, float, float]]:
+        earth = OneAxisEllipsoid(
+            Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
+            Constants.WGS84_EARTH_FLATTENING,
+            FramesFactory.getITRF(IERSConventions.IERS_2010, True),
+        )
+        prop = build_propagator(orbital_config, physics_config)
+        prop.addEventDetector(
+            AltitudeDetector(_INTERCEPTION_ALT_M, earth).withHandler(
+                StopOnDecreasing()  # type: ignore[no-untyped-call]
+            )
+        )
+        epoch = _to_absolute_date(orbital_config.epoch)
+        state = prop.propagate(epoch.shiftedBy(period))
+        pv = state.getPVCoordinates()
+        pos = pv.getPosition()
+        vel = pv.getVelocity()
+        r = math.sqrt(pos.getX() ** 2 + pos.getY() ** 2 + pos.getZ() ** 2)
+        v_sq = vel.getX() ** 2 + vel.getY() ** 2 + vel.getZ() ** 2
+        energy = 0.5 * v_sq - mu / r
+        return energy, (float(pos.getX()), float(pos.getY()), float(pos.getZ()))
+
+    energy_2c, pos_2c = _energy_at_200km(PhysicsConfig.rung_2c())
+    energy_2d, pos_2d = _energy_at_200km(physics_2d)
+    d_energy = energy_2d - energy_2c
+    dr = math.sqrt(
+        sum((a - b) ** 2 for a, b in zip(pos_2c, pos_2d, strict=True))
+    )
+
+    cd_am = physics_2d.drag_cd_area_over_mass
+    assert cd_am is not None
+    v_200 = math.sqrt(mu * (2.0 / (_EARTH_RADIUS_M + 200_000.0) - 1.0 / a))
+    v_300 = math.sqrt(mu * (2.0 / (_EARTH_RADIUS_M + 300_000.0) - 1.0 / a))
+    a_drag_200 = drag_deceleration(cd_am, v_200, 200_000.0)
+    a_drag_300 = drag_deceleration(cd_am, v_300, 300_000.0)
+
+    print("  Drag signature validation (Rung 2d, NRLMSISE-00):")
+    print(f"    Analytic drag decel @ 200 km: {a_drag_200:.3e} m/s²")
+    print(f"    Analytic drag decel @ 300 km: {a_drag_300:.3e} m/s²")
+    print(f"    Orbital energy at 200 km — no drag: {energy_2c:.1f} J/kg")
+    print(f"    Orbital energy at 200 km — with drag: {energy_2d:.1f} J/kg")
+    print(f"    ΔE from drag: {d_energy:.1f} J/kg  (negative = drag removed energy)")
+    print(f"    Position divergence at 200 km: {dr / 1e3:.3f} km")
+
+
 def main() -> None:
     propagate_one_period(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
     print()
@@ -312,6 +375,8 @@ def main() -> None:
     validate_third_body_signatures(_NOMINAL_CONFIG)
     print()
     validate_srp_signatures(_NOMINAL_CONFIG)
+    print()
+    validate_drag_signatures(_NOMINAL_CONFIG)
 
 
 if __name__ == "__main__":
