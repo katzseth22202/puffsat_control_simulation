@@ -31,16 +31,17 @@ from puffsat_sim.orbital_math import (
     orbital_config_from_cities,
     perigee_speed,
     solar_tidal_ratio,
+    srp_acceleration,
 )
 
 # Importing propagator starts the JVM and loads Orekit data.
 # All org.orekit.* imports must follow this line.
 from puffsat_sim.propagator import build_propagator  # noqa: E402
 
-from org.orekit.bodies import OneAxisEllipsoid
+from org.orekit.bodies import CelestialBodyFactory, OneAxisEllipsoid
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import KeplerianOrbit
-from org.orekit.propagation.events import AltitudeDetector
+from org.orekit.propagation.events import AltitudeDetector, EclipseDetector, EventsLogger
 from org.orekit.propagation.events.handlers import StopOnDecreasing
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
 from org.orekit.utils import Constants, IERSConventions
@@ -52,6 +53,7 @@ from org.orekit.utils import Constants, IERSConventions
 _PERIGEE_ALT_M: Final[float] = 50_000.0        # orbit periapsis [m]; debris disposal below Kármán
 _APOGEE_ALT_M: Final[float] = 150_000_000.0    # deployment apogee [m]
 _INTERCEPTION_ALT_M: Final[float] = 200_000.0  # control target: 200 km descent crossing
+_SUN_RADIUS_M: Final[float] = 6.957e8          # solar radius [m] — used by EclipseDetector
 
 # ---------------------------------------------------------------------------
 # Nominal orbital plane — defined by a great circle through two surface points.
@@ -250,6 +252,56 @@ def validate_third_body_signatures(orbital_config: OrbitalConfig) -> None:
     print(f"    One-period position drift (J2 → J2+Sun+Moon): {dr / 1e3:.3f} km")
 
 
+def validate_srp_signatures(orbital_config: OrbitalConfig) -> None:
+    """Verify SRP cannonball force model and shadow/eclipse detection (Rung 2c).
+
+    Confirms SRP is active by comparing one-period propagation with J2+third_body
+    vs J2+third_body+SRP, then counts eclipse entry/exit events using EclipseDetector
+    to verify the cylindrical shadow model is wired.  Prints the analytic SRP
+    acceleration at 1 AU as the order-of-magnitude benchmark.
+    """
+    physics_2c = PhysicsConfig.rung_2c()
+    a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
+    epoch = _to_absolute_date(orbital_config.epoch)
+
+    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
+        prop = build_propagator(orbital_config, physics_config)
+        state = prop.propagate(epoch.shiftedBy(period))
+        pv = state.getPVCoordinates().getPosition()
+        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
+
+    pos_2b = _final_pos(PhysicsConfig.rung_2b())
+    pos_2c = _final_pos(physics_2c)
+    dr = math.sqrt(
+        sum((a - b) ** 2 for a, b in zip(pos_2b, pos_2c, strict=True))
+    )
+
+    # Eclipse detection: count shadow entry/exit crossings during one period.
+    sun = CelestialBodyFactory.getSun()
+    earth = OneAxisEllipsoid(
+        Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
+        Constants.WGS84_EARTH_FLATTENING,
+        FramesFactory.getITRF(IERSConventions.IERS_2010, True),
+    )
+    eclipse_prop = build_propagator(orbital_config, physics_2c)
+    logger: EventsLogger = EventsLogger()  # type: ignore[no-untyped-call]
+    eclipse_prop.addEventDetector(
+        logger.monitorDetector(EclipseDetector(sun, _SUN_RADIUS_M, earth))
+    )
+    eclipse_prop.propagate(epoch.shiftedBy(period))
+    n_eclipse = len(logger.getLoggedEvents())
+
+    cr_am = physics_2c.srp_cr_area_over_mass
+    assert cr_am is not None
+    accel = srp_acceleration(cr_am)
+
+    print("  SRP signature validation (Rung 2c):")
+    print(f"    Analytic SRP accel (1 AU, Cr·A/m={cr_am}): {accel:.3e} m/s²")
+    print(f"    One-period divergence (J2+3body → +SRP): {dr / 1e3:.3f} km")
+    print(f"    Eclipse crossings detected in one period: {n_eclipse}")
+
+
 def main() -> None:
     propagate_one_period(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
     print()
@@ -258,6 +310,8 @@ def main() -> None:
     validate_j2_signatures(_NOMINAL_CONFIG)
     print()
     validate_third_body_signatures(_NOMINAL_CONFIG)
+    print()
+    validate_srp_signatures(_NOMINAL_CONFIG)
 
 
 if __name__ == "__main__":

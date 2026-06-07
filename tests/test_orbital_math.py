@@ -14,6 +14,7 @@ from puffsat_sim.orbital_math import (
     orbital_config_from_cities,
     perigee_speed,
     solar_tidal_ratio,
+    srp_acceleration,
     tidal_acceleration_ratio,
 )
 
@@ -174,6 +175,41 @@ class TestJ2Rates:
     def test_polar_orbit_zero_nodal_regression(self) -> None:
         rate = j2_nodal_regression_rate(self._A, self._E, math.radians(90.0))
         assert abs(rate) < 1e-16, "Polar orbit (i=90°) must have zero nodal regression"
+
+
+class TestSrpAcceleration:
+    """Verify SRP acceleration helper against the design doc benchmark (Rung 2c).
+
+    At 1 AU with Cr·A/m = 0.02 m²/kg (PhysicsConfig.rung_2c default):
+        a = 4.56e-6 Pa × 0.02 m²/kg ≈ 9.12e-8 m/s²
+    This is ~9.3× larger than the Moon's tidal acceleration at apogee, making
+    SRP the dominant non-gravitational force in the coast phase.
+    """
+
+    _CR_AM = 0.02         # rung_2c default [m²/kg]
+    _ONE_AU = 1.495978707e11
+
+    def test_default_at_1au(self) -> None:
+        a = srp_acceleration(self._CR_AM)
+        assert a == pytest.approx(4.56e-6 * self._CR_AM, rel=1e-9)
+
+    def test_zero_cr_am(self) -> None:
+        assert srp_acceleration(0.0) == pytest.approx(0.0)
+
+    def test_scales_inverse_square_with_distance(self) -> None:
+        a1 = srp_acceleration(self._CR_AM, self._ONE_AU)
+        a2 = srp_acceleration(self._CR_AM, 2 * self._ONE_AU)
+        assert a1 == pytest.approx(4.0 * a2, rel=1e-9)
+
+    def test_order_of_magnitude_at_1au(self) -> None:
+        # Expected ~9e-8 m/s² for Cr·A/m = 0.02
+        a = srp_acceleration(self._CR_AM)
+        assert 5e-8 < a < 2e-7
+
+    def test_increases_closer_to_sun(self) -> None:
+        a_near = srp_acceleration(self._CR_AM, 0.5 * self._ONE_AU)
+        a_far = srp_acceleration(self._CR_AM, 2.0 * self._ONE_AU)
+        assert a_near > a_far
 
 
 class TestTidalAccelerationRatio:

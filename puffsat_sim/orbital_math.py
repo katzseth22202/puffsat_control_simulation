@@ -14,6 +14,9 @@ _EARTH_RADIUS_M: Final[float] = 6_378_137.0   # WGS84 equatorial radius [m]
 _WGS84_MU: Final[float] = 3.986_004_418e14    # Earth gravitational parameter [m³/s²]
 _J2: Final[float] = 1.08262668e-3             # EGM2008 zonal harmonic J2
 
+# Solar radiation pressure at 1 AU [Pa = N/m²] — used for analytic SRP estimates.
+_SRP_P0_PA: Final[float] = 4.56e-6
+
 # Third-body constants for analytic perturbation estimates.
 # Distances are mean values; instantaneous geometry varies but these are
 # sufficient for order-of-magnitude tidal ratio checks.
@@ -79,6 +82,17 @@ def j2_apsidal_precession_rate(
 # ---------------------------------------------------------------------------
 # Third-body tidal perturbation strength (analytic, Hill approximation)
 # ---------------------------------------------------------------------------
+
+def srp_acceleration(
+    cr_area_over_mass: float,
+    sun_distance_m: float = _SUN_MEAN_DISTANCE_M,
+) -> float:
+    """SRP acceleration magnitude [m/s²] at a given distance from the Sun.
+
+    a_srp = P₀ · (d₀/r)² · (Cr·A/m)  where P₀ = 4.56×10⁻⁶ Pa at 1 AU.
+    """
+    return _SRP_P0_PA * (_SUN_MEAN_DISTANCE_M / sun_distance_m) ** 2 * cr_area_over_mass
+
 
 def tidal_acceleration_ratio(
     apogee_alt_m: float, body_mu_m3_s2: float, body_distance_m: float

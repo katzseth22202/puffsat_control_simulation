@@ -23,9 +23,10 @@ from orekit_jpype.pyhelpers import setup_orekit_curdir
 setup_orekit_curdir()  # loads orekit-data.zip from the current working directory
 
 from org.hipparchus.ode.nonstiff import DormandPrince853Integrator
-from org.orekit.bodies import CelestialBodyFactory
+from org.orekit.bodies import CelestialBodyFactory, OneAxisEllipsoid
 from org.orekit.forces.gravity import HolmesFeatherstoneAttractionModel, ThirdBodyAttraction
 from org.orekit.forces.gravity.potential import GravityFieldFactory
+from org.orekit.forces.radiation import IsotropicRadiationSingleCoefficient, SolarRadiationPressure
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import KeplerianOrbit, OrbitType, PositionAngleType
 from org.orekit.propagation import SpacecraftState
@@ -97,7 +98,9 @@ def _build_numerical_propagator(orbit: Any, physics_config: PhysicsConfig) -> An
     propagator = NumericalPropagator(integrator)
     propagator.setOrbitType(OrbitType.KEPLERIAN)
     propagator.setPositionAngleType(PositionAngleType.MEAN)
-    propagator.setInitialState(SpacecraftState(orbit))
+    # mass=1.0 kg so that cr_area_over_mass and cd_area_over_mass are used directly
+    # as effective cross-sections — the physical Cr/Cd are already folded in.
+    propagator.setInitialState(SpacecraftState(orbit, 1.0))
 
     if physics_config.geopotential_degree > 0:
         provider = GravityFieldFactory.getNormalizedProvider(
@@ -111,7 +114,19 @@ def _build_numerical_propagator(orbit: Any, physics_config: PhysicsConfig) -> An
         propagator.addForceModel(ThirdBodyAttraction(CelestialBodyFactory.getMoon()))
 
     if physics_config.srp_cr_area_over_mass is not None:
-        raise NotImplementedError("SRP force model not yet implemented (Rung 2c).")
+        earth_ellipsoid = OneAxisEllipsoid(
+            Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
+            Constants.WGS84_EARTH_FLATTENING,
+            itrf,
+        )
+        sun = CelestialBodyFactory.getSun()
+        # absorptionCoeff=1.0 → effective Cr_orekit = 1; the physical Cr is already
+        # encoded in srp_cr_area_over_mass (= Cr · A/m).  With SpacecraftState
+        # mass=1 kg, Orekit computes a = P · 1 · srp_cr_area_over_mass / 1 = correct.
+        srp_model = IsotropicRadiationSingleCoefficient(
+            physics_config.srp_cr_area_over_mass, 1.0
+        )
+        propagator.addForceModel(SolarRadiationPressure(sun, earth_ellipsoid, srp_model))
 
     if physics_config.drag_cd_area_over_mass is not None:
         raise NotImplementedError("Drag force model not yet implemented (Rung 2d).")
