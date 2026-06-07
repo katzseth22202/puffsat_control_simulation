@@ -3,6 +3,7 @@ import math
 
 import pytest
 
+from puffsat_sim.mission import APOGEE_ALT_M, PERIGEE_ALT_M
 from puffsat_sim.orbital_math import (
     keplerian_elements,
     keplerian_period,
@@ -10,10 +11,8 @@ from puffsat_sim.orbital_math import (
     wrap_to_pi,
 )
 
-# Reference orbit: 50 km orbit periapsis (debris disposal), 150 000 km apogee
-# Interception occurs at 200 km during descent (design doc §3).
-_PERIGEE_ALT_M = 50_000.0
-_APOGEE_ALT_M = 150_000_000.0
+# Independent literal (not imported from constants) so these tests verify
+# keplerian_elements rather than re-using the same radius the code uses.
 _EARTH_RADIUS_M = 6_378_137.0
 
 
@@ -24,24 +23,24 @@ class TestKeplerianElements:
         assert a == pytest.approx(_EARTH_RADIUS_M + 400_000.0)
 
     def test_reference_orbit_semi_major_axis(self) -> None:
-        a, _ = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
-        r_p = _EARTH_RADIUS_M + _PERIGEE_ALT_M
-        r_a = _EARTH_RADIUS_M + _APOGEE_ALT_M
+        a, _ = keplerian_elements(PERIGEE_ALT_M, APOGEE_ALT_M)
+        r_p = _EARTH_RADIUS_M + PERIGEE_ALT_M
+        r_a = _EARTH_RADIUS_M + APOGEE_ALT_M
         assert a == pytest.approx((r_p + r_a) / 2.0)
 
     def test_reference_orbit_eccentricity(self) -> None:
-        _, e = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
+        _, e = keplerian_elements(PERIGEE_ALT_M, APOGEE_ALT_M)
         # Design doc §3: e ≈ 0.921 for the near-term architecture (50 km periapsis)
         assert e == pytest.approx(0.921033, rel=1e-4)
 
     def test_eccentricity_bounded(self) -> None:
-        _, e = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
+        _, e = keplerian_elements(PERIGEE_ALT_M, APOGEE_ALT_M)
         assert 0.0 <= e < 1.0
 
 
 class TestKeplerianPeriod:
     def test_reference_orbit_period(self) -> None:
-        a, _ = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
+        a, _ = keplerian_elements(PERIGEE_ALT_M, APOGEE_ALT_M)
         period = keplerian_period(a)
         # Design doc §3: ~2.68 days (50 km periapsis)
         assert period == pytest.approx(231138.7, rel=1e-4)
@@ -96,8 +95,8 @@ class TestWrapToPi:
 
 class TestPerigeeSpeed:
     def test_reference_orbit_perigee_speed(self) -> None:
-        a, _ = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
-        v = perigee_speed(a, _PERIGEE_ALT_M)
+        a, _ = keplerian_elements(PERIGEE_ALT_M, APOGEE_ALT_M)
+        v = perigee_speed(a, PERIGEE_ALT_M)
         # Design doc §3: ~10.91 km/s at 50 km periapsis
         assert v == pytest.approx(10914.2, rel=1e-3)
 

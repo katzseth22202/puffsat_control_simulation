@@ -25,3 +25,4 @@ MOON_MU: Final[float] = 4.9048695e12          # lunar gravitational parameter [m
 SUN_MU: Final[float] = 1.32712440018e20       # solar gravitational parameter [m³/s²]
 MOON_MEAN_DISTANCE_M: Final[float] = 3.84400e8     # mean Earth–Moon distance [m]
 SUN_MEAN_DISTANCE_M: Final[float] = 1.495978707e11  # 1 AU [m]
+SUN_RADIUS_M: Final[float] = 6.957e8               # solar radius [m] — used by EclipseDetector

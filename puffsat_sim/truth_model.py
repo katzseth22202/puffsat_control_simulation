@@ -23,12 +23,11 @@ The orbit used matches the near-term architecture from the paper:
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime
-from typing import Final
+from datetime import datetime
 
-from puffsat_sim import presets
+from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
-from puffsat_sim.constants import EARTH_RADIUS_M
+from puffsat_sim.constants import EARTH_RADIUS_M, SUN_RADIUS_M
 from puffsat_sim.forces import AtmosphericDrag, SolarRadiation
 from puffsat_sim.forces.drag import drag_deceleration
 from puffsat_sim.forces.geopotential import (
@@ -43,7 +42,6 @@ from puffsat_sim.orbital_math import (
     perigee_speed,
     wrap_to_pi,
 )
-from puffsat_sim.orbital_plane import orbital_config_from_cities
 
 # Importing propagator starts the JVM and loads Orekit data.
 # All org.orekit.* imports must follow this line.
@@ -56,37 +54,6 @@ from org.orekit.propagation.events import AltitudeDetector, EclipseDetector, Eve
 from org.orekit.propagation.events.handlers import ContinueOnEvent, StopOnDecreasing
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
 from org.orekit.utils import Constants, IERSConventions
-
-# ---------------------------------------------------------------------------
-# Mission constants — fixed across all runs and Monte Carlo draws
-# ---------------------------------------------------------------------------
-
-_PERIGEE_ALT_M: Final[float] = 50_000.0        # orbit periapsis [m]; debris disposal below Kármán
-_APOGEE_ALT_M: Final[float] = 150_000_000.0    # deployment apogee [m]
-_INTERCEPTION_ALT_M: Final[float] = 200_000.0  # control target: 200 km descent crossing
-_SUN_RADIUS_M: Final[float] = 6.957e8          # solar radius [m] — used by EclipseDetector
-
-# ---------------------------------------------------------------------------
-# Nominal orbital plane — defined by a great circle through two surface points.
-#
-# The specific cities are arbitrary: we want a realistic mid-to-high inclination
-# (~70°) for the perturbation study.  Ground tracks are not modelled and the
-# simulation is not sensitive to which locations are used — only the resulting
-# inclination and RAAN matter.  The epoch sets the RAAN via GMST.
-# ---------------------------------------------------------------------------
-
-_TOKYO: Final[tuple[float, float]] = (35.6762, 139.6503)    # (lat°N, lon°E)
-_NEW_YORK: Final[tuple[float, float]] = (40.7128, -74.0060)  # (lat°N, lon°W)
-_EPOCH: Final[datetime] = datetime(2026, 6, 2, 0, 0, 0, tzinfo=UTC)
-
-_NOMINAL_CONFIG: Final[OrbitalConfig] = orbital_config_from_cities(
-    *_TOKYO,
-    *_NEW_YORK,
-    epoch=_EPOCH,
-    perigee_alt_m=_PERIGEE_ALT_M,
-    apogee_alt_m=_APOGEE_ALT_M,
-)
-
 
 def _to_absolute_date(dt: datetime) -> AbsoluteDate:
     utc = TimeScalesFactory.getUTC()
@@ -165,7 +132,7 @@ def propagate_to_interception(
         Constants.WGS84_EARTH_FLATTENING,
         FramesFactory.getITRF(IERSConventions.IERS_2010, True),
     )
-    detector = AltitudeDetector(_INTERCEPTION_ALT_M, earth).withHandler(
+    detector = AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(
         StopOnDecreasing()  # type: ignore[no-untyped-call]
     )
     propagator.addEventDetector(detector)
@@ -304,7 +271,7 @@ def report_srp_signatures(orbital_config: OrbitalConfig) -> None:
     # whole period so the count is meaningful.
     eclipse_prop.addEventDetector(
         logger.monitorDetector(
-            EclipseDetector(sun, _SUN_RADIUS_M, earth).withHandler(
+            EclipseDetector(sun, SUN_RADIUS_M, earth).withHandler(
                 ContinueOnEvent()  # type: ignore[no-untyped-call]
             )
         )
@@ -346,7 +313,7 @@ def report_drag_signatures(orbital_config: OrbitalConfig) -> None:
         )
         prop = build_propagator(orbital_config, physics_config)
         prop.addEventDetector(
-            AltitudeDetector(_INTERCEPTION_ALT_M, earth).withHandler(
+            AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(
                 StopOnDecreasing()  # type: ignore[no-untyped-call]
             )
         )
@@ -385,17 +352,17 @@ def report_drag_signatures(orbital_config: OrbitalConfig) -> None:
 
 
 def main() -> None:
-    propagate_one_period(_NOMINAL_CONFIG, presets.two_body())
+    propagate_one_period(mission.NOMINAL_CONFIG, presets.two_body())
     print()
-    propagate_to_interception(_NOMINAL_CONFIG, presets.two_body())
+    propagate_to_interception(mission.NOMINAL_CONFIG, presets.two_body())
     print()
-    report_j2_signatures(_NOMINAL_CONFIG)
+    report_j2_signatures(mission.NOMINAL_CONFIG)
     print()
-    report_third_body_signatures(_NOMINAL_CONFIG)
+    report_third_body_signatures(mission.NOMINAL_CONFIG)
     print()
-    report_srp_signatures(_NOMINAL_CONFIG)
+    report_srp_signatures(mission.NOMINAL_CONFIG)
     print()
-    report_drag_signatures(_NOMINAL_CONFIG)
+    report_drag_signatures(mission.NOMINAL_CONFIG)
 
 
 if __name__ == "__main__":

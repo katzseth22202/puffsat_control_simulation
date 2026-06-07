@@ -13,19 +13,19 @@ or:
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import pytest
 
-from puffsat_sim import presets
+from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
+from puffsat_sim.constants import SUN_RADIUS_M
 from puffsat_sim.forces.geopotential import (
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
 )
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period, wrap_to_pi
-from puffsat_sim.orbital_plane import orbital_config_from_cities
 
 try:
     # Importing propagator boots the JVM and loads orekit-data.zip from the cwd.
@@ -47,24 +47,10 @@ except Exception as exc:  # pragma: no cover - environment guard
 
 pytestmark = pytest.mark.integration
 
-_EPOCH = datetime(2026, 6, 2, 0, 0, 0, tzinfo=UTC)
-_PERIGEE_ALT_M = 50_000.0
-_APOGEE_ALT_M = 150_000_000.0
-_INTERCEPTION_ALT_M = 200_000.0
-_SUN_RADIUS_M = 6.957e8
-
 
 @pytest.fixture(scope="module")
 def config() -> OrbitalConfig:
-    return orbital_config_from_cities(
-        35.6762,
-        139.6503,
-        40.7128,
-        -74.0060,
-        epoch=_EPOCH,
-        perigee_alt_m=_PERIGEE_ALT_M,
-        apogee_alt_m=_APOGEE_ALT_M,
-    )
+    return mission.NOMINAL_CONFIG
 
 
 def _abs_date(dt: datetime) -> Any:
@@ -122,7 +108,7 @@ def test_interception_stops_at_200km(config: OrbitalConfig) -> None:
     earth = _earth()
     prop = build_propagator(config, presets.two_body())
     prop.addEventDetector(
-        AltitudeDetector(_INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
+        AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
     )
     epoch = _abs_date(config.epoch)
     period = _period(config)
@@ -132,7 +118,7 @@ def test_interception_stops_at_200km(config: OrbitalConfig) -> None:
     geodetic = earth.transform(
         state.getPVCoordinates().getPosition(), FramesFactory.getEME2000(), state.getDate()
     )
-    assert geodetic.getAltitude() == pytest.approx(_INTERCEPTION_ALT_M, abs=10.0)
+    assert geodetic.getAltitude() == pytest.approx(mission.INTERCEPTION_ALT_M, abs=10.0)
     # Event fired mid-orbit (apogee -> descent), well before a full period elapsed.
     assert 0.0 < elapsed < period
 
@@ -186,7 +172,7 @@ def test_drag_removes_orbital_energy(config: OrbitalConfig) -> None:
     def energy_at_interception(physics: PhysicsConfig) -> float:
         prop = build_propagator(config, physics)
         prop.addEventDetector(
-            AltitudeDetector(_INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
+            AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
         )
         state = prop.propagate(_abs_date(config.epoch).shiftedBy(_period(config)))
         pv = state.getPVCoordinates()
@@ -212,7 +198,7 @@ def test_eclipse_detector_runs_full_period(config: OrbitalConfig) -> None:
     logger = EventsLogger()
     prop.addEventDetector(
         logger.monitorDetector(
-            EclipseDetector(sun, _SUN_RADIUS_M, earth).withHandler(ContinueOnEvent())
+            EclipseDetector(sun, SUN_RADIUS_M, earth).withHandler(ContinueOnEvent())
         )
     )
     epoch = _abs_date(config.epoch)

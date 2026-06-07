@@ -19,11 +19,8 @@ from puffsat_sim.forces.third_body import (
     solar_tidal_ratio,
     tidal_acceleration_ratio,
 )
+from puffsat_sim.mission import APOGEE_ALT_M, PERIGEE_ALT_M
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
-
-# Reference orbit: 50 km orbit periapsis (debris disposal), 150 000 km apogee.
-_PERIGEE_ALT_M = 50_000.0
-_APOGEE_ALT_M = 150_000_000.0
 
 
 class TestGeopotentialSpec:
@@ -46,7 +43,7 @@ class TestJ2Rates:
     is retrograde.  Nodal regression is always retrograde for prograde orbits.
     """
 
-    _A, _E = keplerian_elements(_PERIGEE_ALT_M, _APOGEE_ALT_M)
+    _A, _E = keplerian_elements(PERIGEE_ALT_M, APOGEE_ALT_M)
     _PERIOD = keplerian_period(_A)
     _I_70 = math.radians(70.0)
     _I_63_4 = math.radians(63.435)  # critical inclination: apsidal precession ≈ 0
@@ -189,16 +186,16 @@ class TestTidalAccelerationRatio:
 
     def test_moon_ratio_at_reference_apogee_order_of_magnitude(self) -> None:
         # Moon tidal ratio at 150 000 km apogee should be ~0.1–0.3%
-        ratio = lunar_tidal_ratio(_APOGEE_ALT_M)
+        ratio = lunar_tidal_ratio(APOGEE_ALT_M)
         assert 0.001 < ratio < 0.003
 
     def test_sun_ratio_at_reference_apogee_order_of_magnitude(self) -> None:
         # Sun tidal ratio at 150 000 km apogee should be ~0.05–0.15%
-        ratio = solar_tidal_ratio(_APOGEE_ALT_M)
+        ratio = solar_tidal_ratio(APOGEE_ALT_M)
         assert 0.0005 < ratio < 0.002
 
     def test_moon_dominates_sun_at_150000_km(self) -> None:
-        assert lunar_tidal_ratio(_APOGEE_ALT_M) > solar_tidal_ratio(_APOGEE_ALT_M)
+        assert lunar_tidal_ratio(APOGEE_ALT_M) > solar_tidal_ratio(APOGEE_ALT_M)
 
     def test_ratio_increases_with_apogee_altitude(self) -> None:
         low = tidal_acceleration_ratio(100_000_000.0, self._MOON_MU, self._MOON_DIST)
@@ -206,7 +203,7 @@ class TestTidalAccelerationRatio:
         assert high > low
 
     def test_ratio_positive(self) -> None:
-        assert tidal_acceleration_ratio(_APOGEE_ALT_M, self._MOON_MU, self._MOON_DIST) > 0.0
+        assert tidal_acceleration_ratio(APOGEE_ALT_M, self._MOON_MU, self._MOON_DIST) > 0.0
 
     def test_low_altitude_ratio_negligible(self) -> None:
         # At 400 km LEO apogee the Moon's tidal effect is completely negligible (<1e-6)

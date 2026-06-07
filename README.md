@@ -192,6 +192,7 @@ puffsat_control_simulation/
 │   │   └── build.py                 # JVM side: Environment + to_force_models() dispatch
 │   ├── orbital_math.py              # foundational two-body helpers (pure)
 │   ├── orbital_plane.py             # orbital_config_from_cities() great-circle plane builder (pure)
+│   ├── mission.py                   # reference scenario: altitudes, epoch, NOMINAL_CONFIG (pure)
 │   ├── propagator.py                # build_propagator(): attaches the perturbations' force models
 │   └── truth_model.py               # make-run report runner: reference orbit + per-force signatures
 └── tests/

@@ -194,6 +194,7 @@ make clean     # remove caches
   `forces/build.py` is the JVM side (`Environment` + `to_force_models()` dispatch).
 - `puffsat_sim/orbital_math.py` — foundational two-body helpers only (pure).
 - `puffsat_sim/orbital_plane.py` — `orbital_config_from_cities()` great-circle plane builder (pure).
+- `puffsat_sim/mission.py` — reference scenario: altitudes, epoch, `NOMINAL_CONFIG` (pure, single source).
 - `puffsat_sim/propagator.py` — exposes `build_propagator()`; attaches the perturbations' force models.
 - `puffsat_sim/truth_model.py` — `make run` report runner: reference orbit + per-force signatures.
 - `tests/` — pure-Python unit suite (no JVM); `tests/integration/` requires a live JVM.

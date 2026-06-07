@@ -1,17 +1,18 @@
 """Tests for the great-circle orbital-plane builder."""
 import math
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pytest
 
+from puffsat_sim import mission
 from puffsat_sim.config import OrbitalConfig
 from puffsat_sim.orbital_plane import orbital_config_from_cities
 
 
 class TestOrbitalConfigFromCities:
-    _EPOCH = datetime(2026, 6, 2, 0, 0, 0, tzinfo=UTC)
-    _PERIGEE = 50_000.0
-    _APOGEE = 150_000_000.0
+    _EPOCH = mission.EPOCH
+    _PERIGEE = mission.PERIGEE_ALT_M
+    _APOGEE = mission.APOGEE_ALT_M
 
     def _cfg(self, lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> OrbitalConfig:
         return orbital_config_from_cities(
