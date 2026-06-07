@@ -1,4 +1,5 @@
 """Tests for OrbitalConfig and PhysicsConfig dataclasses."""
+
 import dataclasses
 import math
 from datetime import UTC, datetime

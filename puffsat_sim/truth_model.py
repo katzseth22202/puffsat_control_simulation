@@ -20,6 +20,7 @@ The orbit used matches the near-term architecture from the paper:
   - eccentricity ~0.921, period ~2.68 days
   - perigee speed ~10.91 km/s
 """
+
 from __future__ import annotations
 
 import math
@@ -54,6 +55,7 @@ from org.orekit.propagation.events import AltitudeDetector, EclipseDetector, Eve
 from org.orekit.propagation.events.handlers import ContinueOnEvent, StopOnDecreasing
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
 from org.orekit.utils import Constants, IERSConventions
+
 
 def _to_absolute_date(dt: datetime) -> AbsoluteDate:
     utc = TimeScalesFactory.getUTC()
@@ -108,9 +110,7 @@ def propagate_one_period(orbital_config: OrbitalConfig, physics_config: PhysicsC
     print(f"    |Δv| = {dv:.3e} m/s")
 
 
-def propagate_to_interception(
-    orbital_config: OrbitalConfig, physics_config: PhysicsConfig
-) -> None:
+def propagate_to_interception(orbital_config: OrbitalConfig, physics_config: PhysicsConfig) -> None:
     """Propagate from apogee, stopping at the 200 km descent crossing (interception).
 
     Uses AltitudeDetector with StopOnDecreasing: the g-function is
@@ -253,9 +253,7 @@ def report_srp_signatures(orbital_config: OrbitalConfig) -> None:
 
     pos_tb = _final_pos(presets.j2_third_body())
     pos_srp = _final_pos(physics_srp)
-    dr = math.sqrt(
-        sum((a - b) ** 2 for a, b in zip(pos_tb, pos_srp, strict=True))
-    )
+    dr = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos_tb, pos_srp, strict=True)))
 
     # Eclipse detection: count shadow entry/exit crossings during one period.
     sun = CelestialBodyFactory.getSun()

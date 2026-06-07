@@ -1,4 +1,5 @@
 """Tests for the force-model presets — content, not build-ladder numbers."""
+
 import pytest
 
 from puffsat_sim import presets

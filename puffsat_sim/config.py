@@ -1,4 +1,5 @@
 """Mission configuration dataclasses — pure Python, no JVM dependency."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

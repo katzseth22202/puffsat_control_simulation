@@ -5,6 +5,7 @@
 in are bundled in :class:`Environment`, built once per propagator so the WGS84
 ellipsoid and Sun are not re-derived for every force.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

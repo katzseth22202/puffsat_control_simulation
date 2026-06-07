@@ -4,6 +4,7 @@ The analytic signatures use puffsat_sim.constants; the truth propagation uses
 Orekit's org.orekit.utils.Constants.  If the two drift apart, analytic
 cross-checks would pass or fail spuriously.  This test fails loudly instead.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -21,9 +22,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_earth_radius_matches_orekit() -> None:
-    assert constants.EARTH_RADIUS_M == pytest.approx(
-        float(Constants.WGS84_EARTH_EQUATORIAL_RADIUS)
-    )
+    assert constants.EARTH_RADIUS_M == pytest.approx(float(Constants.WGS84_EARTH_EQUATORIAL_RADIUS))
 
 
 def test_earth_mu_matches_orekit() -> None:

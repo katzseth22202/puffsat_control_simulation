@@ -10,6 +10,7 @@ Run with:
 or:
     pytest -m integration tests/integration
 """
+
 from __future__ import annotations
 
 import math

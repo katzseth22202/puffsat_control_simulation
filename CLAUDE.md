@@ -136,7 +136,9 @@ download_orekit_data_curdir()   # downloads to current directory
 
 ## Coding conventions
 
-- Python 3.11+; strict mypy; ruff for lint/format.
+- Python 3.11+; strict mypy; ruff for lint and formatting. `ruff format` is
+  enforced — `make all` fails on unformatted code, so run `make format` before
+  committing. (Do not hand-align inline comments; ruff collapses them.)
 - Every public function must have full type annotations, including return type.
 - No comments explaining *what* the code does. Only comment *why* when the
   reason is non-obvious (hidden constraint, workaround, subtle invariant).
@@ -168,12 +170,13 @@ No pip install step — flat layout, Python finds `puffsat_sim/` directly from t
 ## Common tasks (Makefile)
 
 ```bash
-make all       # mypy + lint + test
+make all       # mypy + lint + format-check + test
 make run       # Rung A truth model (puffsat_sim.truth_model)
 make test      # pytest
 make mypy      # strict type check
 make lint      # ruff check
-make format    # ruff format
+make format    # ruff format (auto-fix)
+make format-check  # ruff format --check (gate; part of make all)
 make clean     # remove caches
 ```
 

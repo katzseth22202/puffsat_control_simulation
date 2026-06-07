@@ -10,6 +10,7 @@ The one ordering rule in the codebase is therefore::
 
     import puffsat_sim.jvm   # before any org.orekit import
 """
+
 from __future__ import annotations
 
 from typing import Any, Final

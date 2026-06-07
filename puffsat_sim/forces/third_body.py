@@ -1,4 +1,5 @@
 """Third-body perturbation — spec + analytic tidal-strength ratios (pure)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

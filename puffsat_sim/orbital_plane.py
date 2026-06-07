@@ -4,6 +4,7 @@ Pure Python — no JVM dependency.  Two surface points define a great circle (a
 plane through Earth's centre); that plane becomes the orbital plane, fixing
 inclination and RAAN.
 """
+
 from __future__ import annotations
 
 import math
@@ -84,9 +85,7 @@ def orbital_config_from_cities(
     pole_raw = _cross3(r_a, r_b)
     mag = _norm3(pole_raw)
     if mag < 1e-12:
-        raise ValueError(
-            "Cities must not be coincident or antipodal — orbital plane is undefined."
-        )
+        raise ValueError("Cities must not be coincident or antipodal — orbital plane is undefined.")
     pole = (pole_raw[0] / mag, pole_raw[1] / mag, pole_raw[2] / mag)
 
     inclination_rad = math.acos(max(-1.0, min(1.0, pole[2])))

@@ -2,9 +2,9 @@ PYTHON  := python
 PACKAGE := puffsat_sim
 TESTS   := tests
 
-.PHONY: all run test test-integration mypy lint format data clean
+.PHONY: all run test test-integration mypy lint format format-check data clean
 
-all: mypy lint test
+all: mypy lint format-check test
 
 run: orekit-data.zip
 	$(PYTHON) -m $(PACKAGE).truth_model
@@ -25,6 +25,10 @@ lint:
 
 format:
 	ruff format $(PACKAGE) $(TESTS)
+
+# Gate: fail if any file is not ruff-formatted (run by `make all`).
+format-check:
+	ruff format --check $(PACKAGE) $(TESTS)
 
 # Download the Orekit Earth/time data file (once, ~37 MB).
 # Requires gitlab.orekit.org to be reachable.

@@ -1,4 +1,5 @@
 """Geopotential perturbation — spec + analytic J2 secular rates (pure)."""
+
 from __future__ import annotations
 
 import math
@@ -47,6 +48,4 @@ def j2_apsidal_precession_rate(
     """
     n = math.sqrt(WGS84_MU / semi_major_axis_m**3)
     p = semi_major_axis_m * (1.0 - eccentricity**2)
-    return 0.75 * n * J2 * (EARTH_RADIUS_M / p) ** 2 * (
-        5.0 * math.cos(inclination_rad) ** 2 - 1.0
-    )
+    return 0.75 * n * J2 * (EARTH_RADIUS_M / p) ** 2 * (5.0 * math.cos(inclination_rad) ** 2 - 1.0)

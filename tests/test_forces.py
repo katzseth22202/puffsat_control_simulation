@@ -3,6 +3,7 @@
 These run without a JVM — the analytic signatures are pure Python.  The Orekit
 force models built from these specs are exercised in tests/integration.
 """
+
 import math
 
 import pytest
@@ -94,7 +95,7 @@ class TestDragDeceleration:
     Design doc §4: drag "bites below ~300-400 km."
     """
 
-    _CD_AM = 0.04    # full_force default Cd·(A/m) [m²/kg]
+    _CD_AM = 0.04  # full_force default Cd·(A/m) [m²/kg]
     _V_10KMS = 10_000.0
 
     def test_density_decreases_with_altitude(self) -> None:
@@ -148,7 +149,7 @@ class TestSrpAcceleration:
     SRP the dominant non-gravitational force in the coast phase.
     """
 
-    _CR_AM = 0.02         # preset default [m²/kg]
+    _CR_AM = 0.02  # preset default [m²/kg]
     _ONE_AU = 1.495978707e11
 
     def test_default_at_1au(self) -> None:

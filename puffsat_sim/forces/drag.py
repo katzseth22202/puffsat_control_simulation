@@ -4,6 +4,7 @@ The piecewise-exponential atmosphere here is an order-of-magnitude *analytic*
 estimate (good to ~factor-of-2); the truth propagation uses Orekit's full
 NRLMSISE-00 model, wired in :mod:`puffsat_sim.forces.build`.
 """
+
 from __future__ import annotations
 
 import math
@@ -22,23 +23,23 @@ class AtmosphericDrag:
 
     cd_area_over_mass: float
     f10p7: float = 150.0  # solar flux index
-    ap: float = 15.0      # geomagnetic index
+    ap: float = 15.0  # geomagnetic index
 
 
 # (base_altitude_m, density_kg_m3, scale_height_m) — calibrated to NRLMSISE-00
 # at moderate solar activity (F10.7≈150, Ap≈15).  Good to ~factor-of-2 for
 # order-of-magnitude checks; not a substitute for the full model in build.py.
 _STD_ATM_LAYERS: Final[tuple[tuple[float, float, float], ...]] = (
-    (0,        1.225,    8_500),
-    (25_000,   3.9e-2,   6_700),
-    (50_000,   1.0e-3,   7_200),
-    (80_000,   1.0e-5,   9_000),
-    (100_000,  5.6e-7,  15_500),
-    (150_000,  2.2e-9,  22_000),
-    (200_000,  2.5e-10, 29_000),
-    (300_000,  8.0e-12, 37_000),
-    (500_000,  5.5e-13, 60_000),
-    (700_000,  3.6e-14, 73_000),
+    (0, 1.225, 8_500),
+    (25_000, 3.9e-2, 6_700),
+    (50_000, 1.0e-3, 7_200),
+    (80_000, 1.0e-5, 9_000),
+    (100_000, 5.6e-7, 15_500),
+    (150_000, 2.2e-9, 22_000),
+    (200_000, 2.5e-10, 29_000),
+    (300_000, 8.0e-12, 37_000),
+    (500_000, 5.5e-13, 60_000),
+    (700_000, 3.6e-14, 73_000),
 )
 
 
@@ -56,9 +57,7 @@ def std_atm_density(altitude_m: float) -> float:
     return rho0 * math.exp(-(altitude_m - h0) / scale_h)
 
 
-def drag_deceleration(
-    cd_area_over_mass: float, speed_m_s: float, altitude_m: float
-) -> float:
+def drag_deceleration(cd_area_over_mass: float, speed_m_s: float, altitude_m: float) -> float:
     """Drag deceleration magnitude [m/s²] using piecewise-exponential density.
 
     a_drag = ½ · ρ(h) · v² · (Cd·A/m)

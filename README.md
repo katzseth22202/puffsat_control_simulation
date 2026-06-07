@@ -156,12 +156,13 @@ PuffSat Control Simulation — truth model: Keplerian reference orbit
 ## Common tasks
 
 ```bash
-make all        # mypy + lint + test (CI equivalent)
+make all        # mypy + lint + format-check + test (CI equivalent)
 make run        # truth model (reference orbit + per-force signature reports)
 make test       # pytest
 make mypy       # strict type check
 make lint       # ruff check (subsumes flake8/isort/pyupgrade)
-make format     # ruff format
+make format     # ruff format (auto-fix)
+make format-check  # ruff format --check (gate; part of make all)
 make clean      # remove __pycache__, .mypy_cache, etc.
 ```
 

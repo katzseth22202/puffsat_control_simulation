@@ -4,6 +4,7 @@ build_propagator() is the sole public entry point.  Which force models attach is
 determined by the PhysicsConfig's perturbations; each is turned into Orekit force
 models on the JVM side by :mod:`puffsat_sim.forces.build`.
 """
+
 from __future__ import annotations
 
 from typing import Any, Final
@@ -28,10 +29,10 @@ from puffsat_sim.orbital_math import keplerian_elements
 # Tight relative tolerance avoids integration error masquerading as physical
 # dispersion in the sensitivity analysis (design doc §11.2).
 # ---------------------------------------------------------------------------
-_MIN_STEP_S: Final[float] = 1.0      # 1 s — handles fast perigee pass
-_MAX_STEP_S: Final[float] = 600.0    # 10 min — safe for the slow apogee region
-_ABS_TOL_M: Final[float] = 1e-3     # 1 mm absolute position / velocity tolerance
-_REL_TOL: Final[float] = 1e-10      # relative tolerance
+_MIN_STEP_S: Final[float] = 1.0  # 1 s — handles fast perigee pass
+_MAX_STEP_S: Final[float] = 600.0  # 10 min — safe for the slow apogee region
+_ABS_TOL_M: Final[float] = 1e-3  # 1 mm absolute position / velocity tolerance
+_REL_TOL: Final[float] = 1e-10  # relative tolerance
 
 
 def build_propagator(orbital_config: OrbitalConfig, physics_config: PhysicsConfig) -> Any:

@@ -4,6 +4,7 @@ Named by which perturbations are active, not by the design-doc build-ladder step
 (which collides with the control-stage Rung A–D ladder).  The cumulative bundles
 mirror the "validate one force at a time" story: each adds one force to the last.
 """
+
 from __future__ import annotations
 
 from puffsat_sim.config import PhysicsConfig

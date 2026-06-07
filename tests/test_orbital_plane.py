@@ -1,4 +1,5 @@
 """Tests for the great-circle orbital-plane builder."""
+
 import math
 from datetime import datetime
 
@@ -16,7 +17,10 @@ class TestOrbitalConfigFromCities:
 
     def _cfg(self, lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> OrbitalConfig:
         return orbital_config_from_cities(
-            lat_a, lon_a, lat_b, lon_b,
+            lat_a,
+            lon_a,
+            lat_b,
+            lon_b,
             epoch=self._EPOCH,
             perigee_alt_m=self._PERIGEE,
             apogee_alt_m=self._APOGEE,
@@ -49,7 +53,10 @@ class TestOrbitalConfigFromCities:
     def test_coincident_cities_raises(self) -> None:
         with pytest.raises(ValueError, match="coincident or antipodal"):
             orbital_config_from_cities(
-                35.0, 139.0, 35.0, 139.0,
+                35.0,
+                139.0,
+                35.0,
+                139.0,
                 epoch=self._EPOCH,
                 perigee_alt_m=self._PERIGEE,
                 apogee_alt_m=self._APOGEE,
@@ -58,7 +65,10 @@ class TestOrbitalConfigFromCities:
     def test_naive_epoch_raises(self) -> None:
         with pytest.raises(ValueError, match="timezone-aware"):
             orbital_config_from_cities(
-                35.0, 139.0, 40.0, -74.0,
+                35.0,
+                139.0,
+                40.0,
+                -74.0,
                 epoch=datetime(2026, 6, 2),  # naive
                 perigee_alt_m=self._PERIGEE,
                 apogee_alt_m=self._APOGEE,
