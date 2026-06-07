@@ -27,8 +27,10 @@ from puffsat_sim.orbital_math import (
     j2_nodal_regression_rate,
     keplerian_elements,
     keplerian_period,
+    lunar_tidal_ratio,
     orbital_config_from_cities,
     perigee_speed,
+    solar_tidal_ratio,
 )
 
 # Importing propagator starts the JVM and loads Orekit data.
@@ -218,12 +220,44 @@ def validate_j2_signatures(orbital_config: OrbitalConfig) -> None:
     )
 
 
+def validate_third_body_signatures(orbital_config: OrbitalConfig) -> None:
+    """Verify third-body Sun + Moon perturbations (Rung 2b).
+
+    Confirms that ThirdBodyAttraction is active by comparing one-period
+    propagation with J2-only vs J2+Sun+Moon, then reports the analytic tidal
+    acceleration ratios at apogee (Hill approximation, design doc §2 benchmark).
+    """
+    a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
+    epoch = _to_absolute_date(orbital_config.epoch)
+
+    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
+        prop = build_propagator(orbital_config, physics_config)
+        state = prop.propagate(epoch.shiftedBy(period))
+        pv = state.getPVCoordinates().getPosition()
+        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
+
+    pos_j2 = _final_pos(PhysicsConfig.rung_2a())
+    pos_j2_tb = _final_pos(PhysicsConfig.rung_2b())
+
+    dr = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos_j2, pos_j2_tb, strict=True)))
+
+    moon_pct = lunar_tidal_ratio(orbital_config.apogee_alt_m) * 100.0
+    sun_pct = solar_tidal_ratio(orbital_config.apogee_alt_m) * 100.0
+
+    print("  Third-body signature validation (Rung 2b):")
+    print(f"    Tidal ratio at apogee  — Moon: {moon_pct:.3f}%  Sun: {sun_pct:.3f}%")
+    print(f"    One-period position drift (J2 → J2+Sun+Moon): {dr / 1e3:.3f} km")
+
+
 def main() -> None:
     propagate_one_period(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
     print()
     propagate_to_interception(_NOMINAL_CONFIG, PhysicsConfig.rung_keplerian())
     print()
     validate_j2_signatures(_NOMINAL_CONFIG)
+    print()
+    validate_third_body_signatures(_NOMINAL_CONFIG)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,14 @@ _EARTH_RADIUS_M: Final[float] = 6_378_137.0   # WGS84 equatorial radius [m]
 _WGS84_MU: Final[float] = 3.986_004_418e14    # Earth gravitational parameter [m³/s²]
 _J2: Final[float] = 1.08262668e-3             # EGM2008 zonal harmonic J2
 
+# Third-body constants for analytic perturbation estimates.
+# Distances are mean values; instantaneous geometry varies but these are
+# sufficient for order-of-magnitude tidal ratio checks.
+_MOON_MU: Final[float] = 4.9048695e12         # lunar gravitational parameter [m³/s²]
+_SUN_MU: Final[float] = 1.32712440018e20      # solar gravitational parameter [m³/s²]
+_MOON_MEAN_DISTANCE_M: Final[float] = 3.84400e8   # mean Earth–Moon distance [m]
+_SUN_MEAN_DISTANCE_M: Final[float] = 1.495978707e11  # 1 AU [m]
+
 # J2000.0 reference epoch (2000-01-01 12:00:00 UTC) for GMST calculation.
 _J2000_UTC: Final[datetime] = datetime(2000, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -66,6 +74,37 @@ def j2_apsidal_precession_rate(
     return 0.75 * n * _J2 * (_EARTH_RADIUS_M / p) ** 2 * (
         5.0 * math.cos(inclination_rad) ** 2 - 1.0
     )
+
+
+# ---------------------------------------------------------------------------
+# Third-body tidal perturbation strength (analytic, Hill approximation)
+# ---------------------------------------------------------------------------
+
+def tidal_acceleration_ratio(
+    apogee_alt_m: float, body_mu_m3_s2: float, body_distance_m: float
+) -> float:
+    """Ratio of third-body tidal acceleration to Earth monopole gravity at apogee.
+
+    Uses the Hill (tidal) approximation: a_tidal ≈ 2·μ_body·r_apogee / d_body³.
+    Ratio = a_tidal / a_earth = 2·μ_body·r_apogee³ / (d_body³·μ_earth).
+
+    For the reference orbit (apogee 150 000 km) the Moon gives ~0.17% and
+    the Sun gives ~0.08%, consistent with the design doc "~0.1%" benchmark.
+    """
+    r_a = _EARTH_RADIUS_M + apogee_alt_m
+    a_tidal = 2.0 * body_mu_m3_s2 * r_a / body_distance_m**3
+    a_earth = _WGS84_MU / r_a**2
+    return a_tidal / a_earth
+
+
+def lunar_tidal_ratio(apogee_alt_m: float) -> float:
+    """Tidal acceleration ratio for the Moon at mean distance."""
+    return tidal_acceleration_ratio(apogee_alt_m, _MOON_MU, _MOON_MEAN_DISTANCE_M)
+
+
+def solar_tidal_ratio(apogee_alt_m: float) -> float:
+    """Tidal acceleration ratio for the Sun at 1 AU."""
+    return tidal_acceleration_ratio(apogee_alt_m, _SUN_MU, _SUN_MEAN_DISTANCE_M)
 
 
 # ---------------------------------------------------------------------------

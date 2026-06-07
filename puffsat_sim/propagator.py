@@ -23,7 +23,8 @@ from orekit_jpype.pyhelpers import setup_orekit_curdir
 setup_orekit_curdir()  # loads orekit-data.zip from the current working directory
 
 from org.hipparchus.ode.nonstiff import DormandPrince853Integrator
-from org.orekit.forces.gravity import HolmesFeatherstoneAttractionModel
+from org.orekit.bodies import CelestialBodyFactory
+from org.orekit.forces.gravity import HolmesFeatherstoneAttractionModel, ThirdBodyAttraction
 from org.orekit.forces.gravity.potential import GravityFieldFactory
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import KeplerianOrbit, OrbitType, PositionAngleType
@@ -106,7 +107,8 @@ def _build_numerical_propagator(orbit: Any, physics_config: PhysicsConfig) -> An
         propagator.addForceModel(HolmesFeatherstoneAttractionModel(itrf, provider))
 
     if physics_config.third_body:
-        raise NotImplementedError("Third-body force model not yet implemented (Rung 2b).")
+        propagator.addForceModel(ThirdBodyAttraction(CelestialBodyFactory.getSun()))
+        propagator.addForceModel(ThirdBodyAttraction(CelestialBodyFactory.getMoon()))
 
     if physics_config.srp_cr_area_over_mass is not None:
         raise NotImplementedError("SRP force model not yet implemented (Rung 2c).")
