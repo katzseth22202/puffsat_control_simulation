@@ -18,6 +18,7 @@ from puffsat_sim.orbital_math import (
     srp_acceleration,
     std_atm_density,
     tidal_acceleration_ratio,
+    wrap_to_pi,
 )
 
 # Reference orbit: 50 km orbit periapsis (debris disposal), 150 000 km apogee
@@ -303,6 +304,42 @@ class TestTidalAccelerationRatio:
         # At 400 km LEO apogee the Moon's tidal effect is completely negligible (<1e-6)
         ratio = tidal_acceleration_ratio(400_000.0, self._MOON_MU, self._MOON_DIST)
         assert ratio < 1e-6
+
+
+class TestWrapToPi:
+    """Verify angle wrapping used by the J2 secular-drift validation.
+
+    Orekit reports osculating RAAN/ω on a 0/2π branch, so a small retrograde
+    drift surfaces as a raw difference near +2π.  wrap_to_pi must recover the
+    true signed value.
+    """
+
+    def test_zero_unchanged(self) -> None:
+        assert wrap_to_pi(0.0) == pytest.approx(0.0)
+
+    def test_small_drift_reported_near_2pi(self) -> None:
+        # A −0.03 rad drift surfacing as +2π−0.03 must wrap back to −0.03.
+        raw = 2.0 * math.pi - 0.03
+        assert wrap_to_pi(raw) == pytest.approx(-0.03, abs=1e-12)
+
+    def test_small_positive_unchanged(self) -> None:
+        assert wrap_to_pi(0.05) == pytest.approx(0.05, abs=1e-12)
+
+    def test_pi_maps_to_plus_pi(self) -> None:
+        # Endpoint convention: interval is (-π, π], so −π folds to +π.
+        assert wrap_to_pi(math.pi) == pytest.approx(math.pi)
+        assert wrap_to_pi(-math.pi) == pytest.approx(math.pi)
+
+    def test_result_in_canonical_interval(self) -> None:
+        for k in range(-4, 5):
+            for base in (0.1, 1.0, 2.5, 3.1):
+                w = wrap_to_pi(base + 2.0 * math.pi * k)
+                assert -math.pi < w <= math.pi + 1e-12
+
+    def test_idempotent_on_wrapped_value(self) -> None:
+        for raw in (0.3, -0.3, 3.0, -3.0, 6.0, -6.0):
+            once = wrap_to_pi(raw)
+            assert wrap_to_pi(once) == pytest.approx(once, abs=1e-12)
 
 
 class TestPerigeeSpeed:

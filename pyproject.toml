@@ -48,3 +48,6 @@ ignore = [
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: requires a live Orekit JVM and orekit-data.zip in the cwd (run with 'make test-integration')",
+]

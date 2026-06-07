@@ -34,6 +34,7 @@ class TestPhysicsConfigClassMethods:
     def test_rung_2a_geopotential_only(self) -> None:
         cfg = PhysicsConfig.rung_2a()
         assert cfg.geopotential_degree == 2
+        assert cfg.geopotential_order == 0  # zonal J2 only, no tesseral terms
         assert not cfg.third_body
         assert cfg.srp_cr_area_over_mass is None
         assert cfg.drag_cd_area_over_mass is None
@@ -58,6 +59,19 @@ class TestPhysicsConfigClassMethods:
 
     def test_rung_2d_not_keplerian(self) -> None:
         assert not PhysicsConfig.rung_2d().is_keplerian
+
+
+class TestPhysicsConfigGeopotentialOrder:
+    def test_default_order_is_zonal(self) -> None:
+        assert PhysicsConfig().geopotential_order == 0
+
+    def test_order_may_equal_degree(self) -> None:
+        cfg = PhysicsConfig(geopotential_degree=4, geopotential_order=4)
+        assert cfg.geopotential_order == 4
+
+    def test_order_exceeding_degree_raises(self) -> None:
+        with pytest.raises(ValueError, match="cannot exceed"):
+            PhysicsConfig(geopotential_degree=2, geopotential_order=3)
 
 
 class TestOrbitalConfigFrozen:

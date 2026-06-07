@@ -34,6 +34,10 @@ class PhysicsConfig:
     geopotential_degree=0 with all other fields at defaults selects pure
     Keplerian (point-mass) propagation.
 
+    geopotential_order is the maximum tesseral order of the gravity field and
+    must not exceed geopotential_degree.  order=0 selects a zonal-only field;
+    e.g. degree=2, order=0 is pure J2 (no C21/S21/C22/S22 sectorial terms).
+
     srp_cr_area_over_mass and drag_cd_area_over_mass are None when the
     corresponding force model is inactive; a float (m²/kg) enables it.
     In the Monte Carlo both are drawn per-trajectory from a multiplicative
@@ -43,11 +47,20 @@ class PhysicsConfig:
     """
 
     geopotential_degree: int = 0
+    geopotential_order: int = 0  # max tesseral order; 0 = zonal only (degree 2 → pure J2)
     third_body: bool = False
     srp_cr_area_over_mass: float | None = None   # Cr·(A/m) [m²/kg]; None = SRP off
     drag_cd_area_over_mass: float | None = None  # Cd·(A/m) [m²/kg]; None = drag off
     f10p7: float = 150.0  # solar flux index for atmospheric drag model
     ap: float = 15.0      # geomagnetic index for atmospheric drag model
+
+    def __post_init__(self) -> None:
+        if self.geopotential_order > self.geopotential_degree:
+            raise ValueError(
+                "geopotential_order "
+                f"({self.geopotential_order}) cannot exceed geopotential_degree "
+                f"({self.geopotential_degree})."
+            )
 
     @property
     def is_keplerian(self) -> bool:
@@ -66,8 +79,8 @@ class PhysicsConfig:
 
     @classmethod
     def rung_2a(cls) -> PhysicsConfig:
-        """J2 geopotential only (Rung 2a)."""
-        return cls(geopotential_degree=2)
+        """Zonal J2 geopotential only — degree 2, order 0 (Rung 2a)."""
+        return cls(geopotential_degree=2, geopotential_order=0)
 
     @classmethod
     def rung_2b(cls) -> PhysicsConfig:

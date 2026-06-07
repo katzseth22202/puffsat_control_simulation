@@ -43,6 +43,19 @@ def keplerian_period(semi_major_axis_m: float) -> float:
     return 2.0 * math.pi * math.sqrt(semi_major_axis_m**3 / _WGS84_MU)
 
 
+def wrap_to_pi(angle_rad: float) -> float:
+    """Wrap an angle [rad] to (-π, π].
+
+    Used to take the true signed difference of two angles that may straddle the
+    0/2π branch cut — e.g. a small secular drift that Orekit reports as the raw
+    difference ~2π − ε instead of ~−ε.
+    """
+    wrapped = (angle_rad + math.pi) % (2.0 * math.pi) - math.pi
+    # (a + π) % 2π lands in [0, 2π); the subtraction yields [-π, π).  Map the
+    # -π endpoint to +π so the interval is the conventional (-π, π].
+    return math.pi if wrapped == -math.pi else wrapped
+
+
 def perigee_speed(semi_major_axis_m: float, perigee_alt_m: float) -> float:
     """Return speed at perigee [m/s] via the vis-viva equation."""
     r_p = _EARTH_RADIUS_M + perigee_alt_m

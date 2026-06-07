@@ -34,6 +34,7 @@ from puffsat_sim.orbital_math import (
     perigee_speed,
     solar_tidal_ratio,
     srp_acceleration,
+    wrap_to_pi,
 )
 
 # Importing propagator starts the JVM and loads Orekit data.
@@ -44,7 +45,7 @@ from org.orekit.bodies import CelestialBodyFactory, OneAxisEllipsoid
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import KeplerianOrbit
 from org.orekit.propagation.events import AltitudeDetector, EclipseDetector, EventsLogger
-from org.orekit.propagation.events.handlers import StopOnDecreasing
+from org.orekit.propagation.events.handlers import ContinueOnEvent, StopOnDecreasing
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
 from org.orekit.utils import Constants, IERSConventions
 
@@ -202,8 +203,10 @@ def validate_j2_signatures(orbital_config: OrbitalConfig) -> None:
     raan_f: float = final_orbit.getRightAscensionOfAscendingNode()
     omega_f: float = final_orbit.getPerigeeArgument()
 
-    d_raan_num = math.degrees(raan_f - raan_0)
-    d_omega_num = math.degrees(omega_f - omega_0)
+    # Wrap to (-π, π]: the osculating angles straddle the 0/2π branch cut, so a
+    # raw subtraction reports a small retrograde drift as ~+2π instead of ~−ε.
+    d_raan_num = math.degrees(wrap_to_pi(raan_f - raan_0))
+    d_omega_num = math.degrees(wrap_to_pi(omega_f - omega_0))
 
     rate_raan = j2_nodal_regression_rate(a, e, i)
     rate_omega = j2_apsidal_precession_rate(a, e, i)
@@ -288,8 +291,15 @@ def validate_srp_signatures(orbital_config: OrbitalConfig) -> None:
     )
     eclipse_prop = build_propagator(orbital_config, physics_2c)
     logger: EventsLogger = EventsLogger()  # type: ignore[no-untyped-call]
+    # EclipseDetector defaults to StopOnIncreasing, which would halt the arc at
+    # the first umbra exit; ContinueOnEvent lets it log every crossing across the
+    # whole period so the count is meaningful.
     eclipse_prop.addEventDetector(
-        logger.monitorDetector(EclipseDetector(sun, _SUN_RADIUS_M, earth))
+        logger.monitorDetector(
+            EclipseDetector(sun, _SUN_RADIUS_M, earth).withHandler(
+                ContinueOnEvent()  # type: ignore[no-untyped-call]
+            )
+        )
     )
     eclipse_prop.propagate(epoch.shiftedBy(period))
     n_eclipse = len(logger.getLoggedEvents())
@@ -320,7 +330,7 @@ def validate_drag_signatures(orbital_config: OrbitalConfig) -> None:
     period = keplerian_period(a)
     mu: float = float(Constants.WGS84_EARTH_MU)
 
-    def _energy_at_200km(physics_config: PhysicsConfig) -> tuple[float, tuple[float, float, float]]:
+    def _energy_and_speed_at_200km(physics_config: PhysicsConfig) -> tuple[float, float]:
         earth = OneAxisEllipsoid(
             Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
             Constants.WGS84_EARTH_FLATTENING,
@@ -340,14 +350,15 @@ def validate_drag_signatures(orbital_config: OrbitalConfig) -> None:
         r = math.sqrt(pos.getX() ** 2 + pos.getY() ** 2 + pos.getZ() ** 2)
         v_sq = vel.getX() ** 2 + vel.getY() ** 2 + vel.getZ() ** 2
         energy = 0.5 * v_sq - mu / r
-        return energy, (float(pos.getX()), float(pos.getY()), float(pos.getZ()))
+        return energy, math.sqrt(v_sq)
 
-    energy_2c, pos_2c = _energy_at_200km(PhysicsConfig.rung_2c())
-    energy_2d, pos_2d = _energy_at_200km(physics_2d)
+    # Both arcs stop at the same 200 km altitude (the event fixes position and time),
+    # so the meaningful drag signatures are the loss of specific orbital energy and the
+    # resulting speed reduction at the crossing — not the position, which barely moves.
+    energy_2c, speed_2c = _energy_and_speed_at_200km(PhysicsConfig.rung_2c())
+    energy_2d, speed_2d = _energy_and_speed_at_200km(physics_2d)
     d_energy = energy_2d - energy_2c
-    dr = math.sqrt(
-        sum((a - b) ** 2 for a, b in zip(pos_2c, pos_2d, strict=True))
-    )
+    d_speed = speed_2d - speed_2c
 
     cd_am = physics_2d.drag_cd_area_over_mass
     assert cd_am is not None
@@ -362,7 +373,7 @@ def validate_drag_signatures(orbital_config: OrbitalConfig) -> None:
     print(f"    Orbital energy at 200 km — no drag: {energy_2c:.1f} J/kg")
     print(f"    Orbital energy at 200 km — with drag: {energy_2d:.1f} J/kg")
     print(f"    ΔE from drag: {d_energy:.1f} J/kg  (negative = drag removed energy)")
-    print(f"    Position divergence at 200 km: {dr / 1e3:.3f} km")
+    print(f"    Speed reduction at 200 km from drag: {d_speed * 100.0:+.3f} cm/s")
 
 
 def main() -> None:

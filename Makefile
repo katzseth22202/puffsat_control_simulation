@@ -2,15 +2,20 @@ PYTHON  := python
 PACKAGE := puffsat_sim
 TESTS   := tests
 
-.PHONY: all run test mypy lint format data clean
+.PHONY: all run test test-integration mypy lint format data clean
 
 all: mypy lint test
 
 run: orekit-data.zip
 	$(PYTHON) -m $(PACKAGE).truth_model
 
+# Pure-Python unit tests — no JVM required.
 test:
-	pytest $(TESTS)
+	pytest $(TESTS) --ignore=$(TESTS)/integration
+
+# Integration tests — require a live Orekit JVM and orekit-data.zip in the cwd.
+test-integration: orekit-data.zip
+	pytest -m integration $(TESTS)/integration
 
 mypy:
 	mypy $(PACKAGE)

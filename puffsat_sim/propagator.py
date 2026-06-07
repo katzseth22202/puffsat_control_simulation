@@ -108,7 +108,7 @@ def _build_numerical_propagator(orbit: Any, physics_config: PhysicsConfig) -> An
     if physics_config.geopotential_degree > 0:
         provider = GravityFieldFactory.getNormalizedProvider(
             physics_config.geopotential_degree,
-            physics_config.geopotential_degree,
+            physics_config.geopotential_order,
         )
         propagator.addForceModel(HolmesFeatherstoneAttractionModel(itrf, provider))
 
