@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import dataclasses
+import json
+from pathlib import Path
+
 import pytest
 
 from puffsat_sim.control import solve_apogee_correction
 from puffsat_sim.dispersion import DispersionSpec
+from puffsat_sim.sink import read_records, record_to_dict
 
 try:
     # Importing montecarlo boots the JVM and loads orekit-data.zip from the cwd.
@@ -80,6 +85,28 @@ def test_closed_loop_nulls_correctable_runs_and_records_authority() -> None:
         assert action.node_label == "apogee"
         assert action.dv_mag_m_s == pytest.approx(_miss_magnitude(action.dv_rtn_m_s), rel=1e-9)
         assert r.total_dv_m_s == pytest.approx(action.dv_mag_m_s)
+
+
+def test_resume_reuses_sink_records_and_runs_only_the_complement(tmp_path: Path) -> None:
+    """A sink-backed ensemble resumes: present indices are reused, not recomputed."""
+    spec = DispersionSpec()
+    seed = 20260608
+    sink = tmp_path / "ensemble.jsonl"
+
+    # First pass writes index 0.  Tamper a *non-input* field with a sentinel so that a
+    # reused record is distinguishable from a recomputed one (the replay guard only
+    # checks inputs, so the tampered record still validates on resume).
+    run_ensemble(spec, n=1, master_seed=seed, sink_path=sink)
+    rec0 = read_records(sink)[0]
+    sentinel = dataclasses.replace(rec0, perigee_alt_m=-12345.0)
+    sink.write_text(json.dumps(record_to_dict(sentinel)) + "\n", encoding="utf-8")
+
+    # Resume at n=2: index 0 comes back from the sink (sentinel intact), index 1 is run.
+    result = run_ensemble(spec, n=2, master_seed=seed, sink_path=sink)
+    assert len(result.records) == 2
+    assert result.records[0].perigee_alt_m == -12345.0  # reused, not recomputed
+    assert result.records[1].perigee_alt_m > 0.0  # index 1 actually propagated
+    assert {r.inputs.run_index for r in read_records(sink)} == {0, 1}
 
 
 def test_closed_loop_beats_open_loop_for_the_same_run() -> None:

@@ -79,6 +79,21 @@ def sample_run_inputs(rng: np.random.Generator, spec: DispersionSpec, run_index:
     return RunInputs(run_index, (dv_r, dv_t, dv_n), cd, cr, f10p7, ap)
 
 
+def _child_seed(master_seed: int, run_index: int) -> np.random.SeedSequence:
+    # spawn_key=(i,) reproduces SeedSequence(master_seed).spawn(n)[i] standalone.
+    return np.random.SeedSequence(entropy=master_seed, spawn_key=(run_index,))
+
+
+def replay_inputs(master_seed: int, spec: DispersionSpec, run_index: int) -> RunInputs:
+    """Reconstruct a single run's draws standalone (§14.2), without the ensemble.
+
+    Pure: the run loop, single-run replay, and the resume guard all derive a run's
+    inputs from ``(master_seed, spec, run_index)`` through this one function.
+    """
+    rng = np.random.default_rng(_child_seed(master_seed, run_index))
+    return sample_run_inputs(rng, spec, run_index)
+
+
 def _to_vec3(a: NDArray[np.float64]) -> Vec3:
     return (float(a[0]), float(a[1]), float(a[2]))
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -39,10 +40,10 @@ from puffsat_sim.dispersion import (
     DispersionSpec,
     RunInputs,
     Vec3,
+    replay_inputs,
     rtn_basis,
     rtn_components,
     rtn_to_cartesian,
-    sample_run_inputs,
     summarize,
 )
 from puffsat_sim.forces import (
@@ -55,18 +56,13 @@ from puffsat_sim.forces import (
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
 from puffsat_sim.records import EnsembleResult, RunRecord
+from puffsat_sim.sink import append_record, plan_resume, read_records
 
 # Caps the adaptive integrator step on the terminal descent so a smooth low-drag arc
 # cannot overstep the 200 km altitude event below the surface ("point is inside
 # ellipsoid").  Interim fix for the §6.2 fragility, pending regime-switched
 # propagation; nominal and perturbed runs share it so the miss stays common-mode.
 _TERMINAL_MAX_STEP_S: float = 30.0
-
-
-def replay_inputs(master_seed: int, spec: DispersionSpec, run_index: int) -> RunInputs:
-    """Reconstruct a single run's draws standalone (§14.2), without the ensemble."""
-    rng = np.random.default_rng(_child_seed(master_seed, run_index))
-    return sample_run_inputs(rng, spec, run_index)
 
 
 def physics_from_inputs(
@@ -84,11 +80,6 @@ def physics_from_inputs(
             Relativity(),
         )
     )
-
-
-def _child_seed(master_seed: int, run_index: int) -> Any:
-    # spawn_key=(i,) reproduces SeedSequence(master_seed).spawn(n)[i] standalone.
-    return np.random.SeedSequence(entropy=master_seed, spawn_key=(run_index,))
 
 
 def _to_absolute_date(dt: datetime) -> Any:
@@ -218,12 +209,18 @@ def run_ensemble(
     master_seed: int,
     orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
     control: Controller | None = None,
+    sink_path: Path | None = None,
 ) -> EnsembleResult:
     """Run a dispersion ensemble and aggregate it.
 
     ``control`` is the §14.1 hook (ADR 0003): ``None`` is the open-loop capstone; a
     ``Controller`` (e.g. the Rung A1 ``solve_apogee_correction``) closes the loop, each
     run solving and executing its plan against the same full-force truth.
+
+    ``sink_path`` enables run-granular checkpoint/resume: completed records stream to a
+    JSONL sink keyed by ``run_index``; on restart only the missing indices are run
+    (the present ones must match this ``master_seed``/``spec``).  The caller must resume
+    with the same ``control`` — inputs are control-independent, so it is not auto-checked.
     """
     earth = _earth()
     epoch = _to_absolute_date(orbital_config.epoch)
@@ -256,11 +253,17 @@ def run_ensemble(
         target=Target(nominal.position_m),
     )
 
-    records: list[RunRecord] = []
-    for i in range(n):
-        rng = np.random.default_rng(_child_seed(master_seed, i))
-        inputs = sample_run_inputs(rng, spec, i)
-        records.append(_run_record(ctx, inputs, control))
+    reuse: dict[int, RunRecord] = {}
+    todo = list(range(n))
+    if sink_path is not None:
+        reuse, todo = plan_resume(read_records(sink_path), master_seed, spec, n)
+    records_by_index: dict[int, RunRecord] = dict(reuse)
+    for i in todo:
+        record = _run_record(ctx, replay_inputs(master_seed, spec, i), control)
+        if sink_path is not None:
+            append_record(sink_path, record)
+        records_by_index[i] = record
+    records = [records_by_index[i] for i in range(n)]
 
     stats = summarize(
         np.array([r.miss_rtn_m for r in records], dtype=np.float64).reshape(n, 3),
