@@ -62,8 +62,47 @@ the nominal reference crossing. The Stage-1 capstone is `run_ensemble(…, contr
 
 **RTN frame**:
 The satellite-local orbital frame — Radial (outward), Transverse (in-plane, toward
-motion), Normal (orbit-normal). The interception miss is reported here; at apogee
+motion), Normal (orbit-normal). The **Interception miss** is reported here; at apogee
 the Transverse axis is the tangential `dr_p/dv_a` lever (§8).
+
+**Interception miss**:
+Crossing position − target position at the 200 km EME2000 descent crossing — three
+components in the nominal-crossing **RTN frame**. The capstone's primary metric and
+the **Differential corrector**'s objective (ADR 0003). _Avoid_: perigee error
+(perigee is a diagnostic, not the target — see Flagged ambiguities).
+
+**Controller**:
+The `control=` hook on `run_ensemble`: a callable `(predict, target, basis) ->
+ControlPlan`. Rung A1 supplies the **Differential corrector**; Rung D supplies MPC;
+`control=None` is the open-loop capstone. _Avoid_: "control law" (this is a targeter,
+not a feedback compensator).
+
+**Differential corrector**:
+The Rung A1 targeter — Newton iteration with a finite-difference Jacobian that solves
+for the apogee Δv nulling the **Interception miss**. Pure `solve_apogee_correction`
+in `control.py`, parameterized by a **Predict** callback; non-convergence is a
+recorded outcome (the authority boundary), not an error. _Avoid_: optimizer, MPC (MPC
+is the Rung-D replacement).
+
+**Predict vs Execute**:
+The two propagation roles (ADR 0003). **Predict** is the onboard model handed to the
+**Controller** for its internal shooting (swapped for a divergent model at Rung C);
+**Execute** is the harness propagating the applied plan against truth — the recorded
+reality (an actuator model maps commanded→applied here at Rung B). Identical
+`full_force` at Rung A.
+
+**ControlAction / ControlPlan**:
+Pure value types in `control.py`. A **ControlAction** is one commanded maneuver (node
++ RTN Δv + magnitude); a **ControlPlan** is the ordered actions a **Controller**
+returns plus its `converged` / `iterations` metadata. The plan is logged into
+`RunRecord.control_log`. _Avoid_: "burn" for the value type (a burn is the physical
+event; these are the record).
+
+**Resume sink**:
+The newline-delimited JSON store of completed `RunRecord`s keyed by `run_index`.
+Recovery is run-granular: on restart, run only the missing indices and re-summarize —
+enabled by per-run seed reproducibility (`replay_inputs`, §14.2), never within-run
+integrator snapshots. _Avoid_: "checkpoint" implying mid-propagation state.
 
 ## Relationships
 
@@ -80,6 +119,14 @@ the Transverse axis is the tangential `dr_p/dv_a` lever (§8).
 - Physical constants shared by ≥2 force modules (Earth radius, μ, J2) live in one
   `constants.py`; force-specific constants (atmosphere layers, SRP P₀) live in
   that force's module.
+- A **Controller** consumes a **Predict** callback and returns a **ControlPlan** of
+  **ControlAction**s; the harness applies it via **Execute** and logs it into the
+  **RunRecord** (`control_log` + `total_dv_m_s`).
+- The **Differential corrector** is the Rung A1 **Controller**: it nulls the
+  **Interception miss**, with perigee / `dr_p/dv_a` kept only as an acceptance
+  cross-check.
+- An **EnsembleResult**'s **RunRecord**s stream to the **Resume sink** keyed by
+  `run_index`; **EnsembleStats** is recomputed from the reloaded set.
 
 ## Example dialogue
 
@@ -94,3 +141,10 @@ the Transverse axis is the tangential `dr_p/dv_a` lever (§8).
   docstring mislabels itself "Rung A truth model"; design-doc Rung A is the
   impulsive-Δv controllability core, not truth propagation. Resolution:
   **Presets are named by content, never by rung.**
+
+- **Perigee as target vs diagnostic (resolved).** The design doc's A1 wording says
+  the corrector nulls "predicted perigee error," but perigee is a *diagnostic*
+  (debris-disposal margin + the §8 lever), not the objective. Resolution (ADR 0003):
+  the **Differential corrector** nulls the **Interception miss**; perigee /
+  `dr_p/dv_a` is an acceptance cross-check only. The design doc A1 bullet is
+  superseded on this point.
