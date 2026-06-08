@@ -131,18 +131,26 @@ class EnsembleStats:
     perigee_alt_std_m: float
     perigee_alt_min_m: float
     perigee_alt_max_m: float
+    total_dv_mean_m_s: float  # the Rung A Δv-floor ledger (0 when control is off)
+    total_dv_std_m_s: float
+    total_dv_max_m_s: float
+    converged_fraction: float  # fraction of runs the corrector solved (1.0 open-loop)
 
 
 def summarize(
     miss_rtn_m: NDArray[np.float64],
     toa_miss_s: NDArray[np.float64],
     perigee_alt_m: NDArray[np.float64],
+    total_dv_m_s: NDArray[np.float64],
+    converged: NDArray[np.bool_],
 ) -> EnsembleStats:
     """Aggregate per-run arrays into ensemble statistics.
 
     ``miss_rtn_m`` is (N, 3) in the nominal-crossing RTN frame; its mean is the aim
     bias and its covariance the dispersion ellipsoid.  perigee_alt min/max bound the
     debris-disposal-safety margin (a missed PuffSat must stay low enough to deorbit).
+    ``total_dv_m_s`` and ``converged`` are per-run control outcomes (all-zero / all-True
+    for the open-loop capstone).
     """
     n = int(miss_rtn_m.shape[0])
     mean = miss_rtn_m.mean(axis=0)
@@ -159,4 +167,8 @@ def summarize(
         perigee_alt_std_m=float(perigee_alt_m.std(ddof=1)) if n > 1 else 0.0,
         perigee_alt_min_m=float(perigee_alt_m.min()),
         perigee_alt_max_m=float(perigee_alt_m.max()),
+        total_dv_mean_m_s=float(total_dv_m_s.mean()),
+        total_dv_std_m_s=float(total_dv_m_s.std(ddof=1)) if n > 1 else 0.0,
+        total_dv_max_m_s=float(total_dv_m_s.max()),
+        converged_fraction=float(converged.mean()),
     )

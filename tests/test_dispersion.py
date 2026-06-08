@@ -105,7 +105,9 @@ class TestSummarize:
         miss = np.array([[1.0, 2.0, 3.0], [3.0, 2.0, 1.0]])
         toa = np.array([10.0, -10.0])
         perigee = np.array([48_000.0, 52_000.0])
-        stats = summarize(miss, toa, perigee)
+        total_dv = np.array([0.1, 0.3])
+        converged = np.array([True, True])
+        stats = summarize(miss, toa, perigee, total_dv, converged)
         assert stats.n == 2
         assert stats.miss_rtn_mean_m == pytest.approx((2.0, 2.0, 2.0))
         assert stats.toa_miss_mean_s == pytest.approx(0.0)
@@ -113,10 +115,31 @@ class TestSummarize:
         assert stats.perigee_alt_max_m == pytest.approx(52_000.0)
         # Sample std (ddof=1) of [1,3] is sqrt(2).
         assert stats.miss_rtn_std_m[0] == pytest.approx(math.sqrt(2.0))
+        assert stats.total_dv_mean_m_s == pytest.approx(0.2)
+        assert stats.total_dv_max_m_s == pytest.approx(0.3)
+        assert stats.converged_fraction == pytest.approx(1.0)
 
     def test_single_run_has_zero_spread(self) -> None:
-        stats = summarize(np.array([[5.0, -3.0, 1.0]]), np.array([2.0]), np.array([50_000.0]))
+        stats = summarize(
+            np.array([[5.0, -3.0, 1.0]]),
+            np.array([2.0]),
+            np.array([50_000.0]),
+            np.array([0.0]),
+            np.array([True]),
+        )
         assert stats.n == 1
         assert stats.miss_rtn_std_m == (0.0, 0.0, 0.0)
         assert stats.toa_miss_std_s == 0.0
         assert stats.perigee_alt_min_m == pytest.approx(50_000.0)
+        assert stats.total_dv_std_m_s == 0.0
+        assert stats.converged_fraction == pytest.approx(1.0)
+
+    def test_converged_fraction_counts_failures(self) -> None:
+        stats = summarize(
+            np.zeros((4, 3)),
+            np.zeros(4),
+            np.full(4, 50_000.0),
+            np.array([0.1, 0.2, 0.3, 0.4]),
+            np.array([True, False, True, False]),
+        )
+        assert stats.converged_fraction == pytest.approx(0.5)

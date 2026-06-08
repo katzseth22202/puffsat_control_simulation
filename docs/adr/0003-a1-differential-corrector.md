@@ -113,3 +113,29 @@ the **pure-solver signature** (decision 5) are load-bearing — Rung B (actuator
 `execute`), Rung C (onboard model on `predict`), and Rung D (MPC behind the
 `Controller` hook, process-parallel sink) all build directly on them. No new
 third-party dependency (numpy only; scipy explicitly deferred).
+
+## Implementation findings (2026-06-08)
+
+Building and running A1 surfaced three things worth recording:
+
+1. **The Newton step cap is load-bearing, not cosmetic.** The 200 km target is an
+   altitude event with free time-of-arrival, so a far high-Δv orbit can re-cross at
+   the same inertial point much later — a spurious root. An uncapped solver
+   converged there (96.9 m/s). The cap (`max_step_m_s`, default 2 m/s) keeps Newton
+   in the physical local basin; a run that needs more reads as non-converged.
+
+2. **Radial apogee injection error is the low-authority dimension.** A 2.4σ radial
+   injection (0.244 m/s) produced a ~28 km *along-track* crossing miss (radial and
+   cross-track stayed < 250 m). A single apogee impulse cannot null that within the
+   ~40 m/s mission Δv budget (Isp 200 s, < 2% of 25 kg) — the only nulling solution
+   found is an ~88 m/s re-phasing. So the binding constraint at Rung A is **not** the
+   §8 `dr_p/dv_a` perigee-altitude lever but the along-track/phase placement; this is
+   a concrete motivator for A2's mid-descent second burn and for an apogee-injection
+   accuracy requirement. `converged_fraction` is therefore a real Rung-A result, not
+   expected to be 1.
+
+3. **Plain Newton's non-convergence on tail runs is the named scipy trigger.** For a
+   trustworthy A3 authority *map*, "non-converged" must mean "no sub-budget solution
+   exists," not "Newton-from-zero missed it." Decision 5 anticipated exactly this
+   ("trust-region robustness near the A3 boundary"); adopting `scipy.optimize.root`
+   (or in-house LM damping) is deferred to A3, where the boundary is mapped.

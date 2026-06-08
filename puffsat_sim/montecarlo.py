@@ -12,7 +12,6 @@ supplies a controller through the same hook (§14.1).  Per-run replay (§14.2):
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -34,6 +33,7 @@ from org.hipparchus.geometry.euclidean.threed import Vector3D
 from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import EARTH_RADIUS_M
+from puffsat_sim.control import ControlAction, ControlPlan, Controller, Target
 from puffsat_sim.dispersion import (
     Basis,
     DispersionSpec,
@@ -56,10 +56,6 @@ from puffsat_sim.forces import (
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
 
-# Optional controller hook (§14.1).  Absent for the open-loop capstone; Rung D fills
-# it.  Left untyped beyond a callable since the controller interface is a Rung-D design.
-Controller = Callable[..., Any]
-
 # Caps the adaptive integrator step on the terminal descent so a smooth low-drag arc
 # cannot overstep the 200 km altitude event below the surface ("point is inside
 # ellipsoid").  Interim fix for the §6.2 fragility, pending regime-switched
@@ -69,7 +65,13 @@ _TERMINAL_MAX_STEP_S: float = 30.0
 
 @dataclass(frozen=True)
 class RunRecord:
-    """One run's outcome: its inputs, the RTN miss, ToA error, and perigee."""
+    """One run's outcome: inputs, the RTN miss, ToA error, perigee, and the control plan.
+
+    For the open-loop capstone (``control=None``) ``control_log`` is empty,
+    ``total_dv_m_s`` is 0, and ``converged`` is True — a superset of the open-loop
+    record.  Stays deeply immutable (tuples, frozen ``ControlAction``) so it logs to a
+    line-oriented sink and crosses processes safely (ADR 0003).
+    """
 
     inputs: RunInputs
     miss_rtn_m: Vec3
@@ -77,6 +79,10 @@ class RunRecord:
     perigee_alt_m: float
     crossing_position_m: Vec3
     crossing_velocity_m_s: Vec3
+    control_log: tuple[ControlAction, ...]
+    total_dv_m_s: float
+    converged: bool
+    iterations: int
 
 
 @dataclass(frozen=True)
@@ -169,6 +175,76 @@ def _apogee_state(orbital_config: OrbitalConfig) -> tuple[Any, Any, Any]:
     return state.getDate(), pv.getPosition(), pv.getVelocity()
 
 
+@dataclass(frozen=True)
+class _RunContext:
+    """Per-ensemble constants shared by every run (built once before the loop)."""
+
+    apo_date: Any
+    apo_pos: Any
+    apo_vel: Any
+    apo_basis: Basis
+    frame: Any
+    mu: float
+    epoch: Any
+    period: float
+    earth: Any
+    nominal: _Crossing
+    nominal_basis: Basis
+    target: Target
+
+
+def _run_record(ctx: _RunContext, inputs: RunInputs, control: Controller | None) -> RunRecord:
+    """Propagate one run: apply injection, solve+execute the control plan, record the miss.
+
+    ``predict`` (the corrector's onboard model) and ``execute`` (truth) are the same
+    full-force physics at Rung A (ADR 0003), so a converged plan lands the recorded
+    crossing on the nominal aim to machine precision.  The injection Δv is baked into
+    the closure, so the corrector solves for the *correction* alone, starting from zero.
+    """
+    physics = physics_from_inputs(inputs)
+    injection_dv_eme = rtn_to_cartesian(inputs.dv_rtn_m_s, ctx.apo_basis)
+
+    def make_crossing(correction_rtn: Vec3) -> _Crossing:
+        corr_eme = rtn_to_cartesian(correction_rtn, ctx.apo_basis)
+        vel = ctx.apo_vel.add(
+            Vector3D(injection_dv_eme[0], injection_dv_eme[1], injection_dv_eme[2])
+        ).add(Vector3D(corr_eme[0], corr_eme[1], corr_eme[2]))
+        orbit = CartesianOrbit(
+            TimeStampedPVCoordinates(ctx.apo_date, ctx.apo_pos, vel), ctx.frame, ctx.mu
+        )
+        prop = build_propagator_from_orbit(orbit, physics, _TERMINAL_MAX_STEP_S)
+        return _propagate_to_interception(prop, ctx.epoch, ctx.period, ctx.earth)
+
+    if control is None:
+        plan = ControlPlan(actions=(), converged=True, iterations=0)
+    else:
+        plan = control(lambda c: make_crossing(c).position_m, ctx.target)
+
+    # Execute the commanded plan against truth.  A1's single action is at the apogee
+    # node (elapsed_s=0), so it folds into the initial velocity; downstream multi-node
+    # execution (ImpulseManeuver events) is an A2 addition.
+    applied_rtn: Vec3 = plan.actions[0].dv_rtn_m_s if plan.actions else (0.0, 0.0, 0.0)
+    crossing = make_crossing(applied_rtn)
+
+    miss_vec: Vec3 = (
+        crossing.position_m[0] - ctx.nominal.position_m[0],
+        crossing.position_m[1] - ctx.nominal.position_m[1],
+        crossing.position_m[2] - ctx.nominal.position_m[2],
+    )
+    return RunRecord(
+        inputs=inputs,
+        miss_rtn_m=rtn_components(miss_vec, ctx.nominal_basis),
+        toa_miss_s=crossing.toa_s - ctx.nominal.toa_s,
+        perigee_alt_m=crossing.perigee_alt_m,
+        crossing_position_m=crossing.position_m,
+        crossing_velocity_m_s=crossing.velocity_m_s,
+        control_log=plan.actions,
+        total_dv_m_s=plan.total_dv_m_s,
+        converged=plan.converged,
+        iterations=plan.iterations,
+    )
+
+
 def run_ensemble(
     spec: DispersionSpec,
     n: int,
@@ -176,15 +252,12 @@ def run_ensemble(
     orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
     control: Controller | None = None,
 ) -> EnsembleResult:
-    """Run an open-loop dispersion ensemble and aggregate it.
+    """Run a dispersion ensemble and aggregate it.
 
-    ``control`` is the §14.1 hook; it must be None here (the open-loop capstone).
+    ``control`` is the §14.1 hook (ADR 0003): ``None`` is the open-loop capstone; a
+    ``Controller`` (e.g. the Rung A1 ``solve_apogee_correction``) closes the loop, each
+    run solving and executing its plan against the same full-force truth.
     """
-    if control is not None:
-        raise NotImplementedError(
-            "Closed-loop control is a Rung-D addition; capstone is open-loop."
-        )
-
     earth = _earth()
     epoch = _to_absolute_date(orbital_config.epoch)
     semi_major, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
@@ -192,48 +265,42 @@ def run_ensemble(
     frame = FramesFactory.getEME2000()
     mu: float = Constants.WGS84_EARTH_MU
 
-    # Nominal (unperturbed) crossing — the reference the miss is measured against.
+    # Nominal (unperturbed) crossing — the reference the miss is measured against and
+    # the corrector's target.
     nominal_prop = build_propagator(orbital_config, presets.full_force(), _TERMINAL_MAX_STEP_S)
     nominal = _propagate_to_interception(nominal_prop, epoch, period, earth)
     nominal_basis: Basis = rtn_basis(nominal.position_m, nominal.velocity_m_s)
 
-    # Apogee deployment state and its RTN basis (for injecting the Δv).
     apo_date, apo_pos, apo_vel = _apogee_state(orbital_config)
     apo_basis: Basis = rtn_basis(_vec3(apo_pos), _vec3(apo_vel))
+
+    ctx = _RunContext(
+        apo_date=apo_date,
+        apo_pos=apo_pos,
+        apo_vel=apo_vel,
+        apo_basis=apo_basis,
+        frame=frame,
+        mu=mu,
+        epoch=epoch,
+        period=period,
+        earth=earth,
+        nominal=nominal,
+        nominal_basis=nominal_basis,
+        target=Target(nominal.position_m),
+    )
 
     records: list[RunRecord] = []
     for i in range(n):
         rng = np.random.default_rng(_child_seed(master_seed, i))
         inputs = sample_run_inputs(rng, spec, i)
-
-        dv_eme = rtn_to_cartesian(inputs.dv_rtn_m_s, apo_basis)
-        perturbed_vel = apo_vel.add(Vector3D(dv_eme[0], dv_eme[1], dv_eme[2]))
-        orbit = CartesianOrbit(
-            TimeStampedPVCoordinates(apo_date, apo_pos, perturbed_vel), frame, mu
-        )
-        prop = build_propagator_from_orbit(orbit, physics_from_inputs(inputs), _TERMINAL_MAX_STEP_S)
-        crossing = _propagate_to_interception(prop, epoch, period, earth)
-
-        miss_vec: Vec3 = (
-            crossing.position_m[0] - nominal.position_m[0],
-            crossing.position_m[1] - nominal.position_m[1],
-            crossing.position_m[2] - nominal.position_m[2],
-        )
-        records.append(
-            RunRecord(
-                inputs=inputs,
-                miss_rtn_m=rtn_components(miss_vec, nominal_basis),
-                toa_miss_s=crossing.toa_s - nominal.toa_s,
-                perigee_alt_m=crossing.perigee_alt_m,
-                crossing_position_m=crossing.position_m,
-                crossing_velocity_m_s=crossing.velocity_m_s,
-            )
-        )
+        records.append(_run_record(ctx, inputs, control))
 
     stats = summarize(
         np.array([r.miss_rtn_m for r in records], dtype=np.float64).reshape(n, 3),
         np.array([r.toa_miss_s for r in records], dtype=np.float64),
         np.array([r.perigee_alt_m for r in records], dtype=np.float64),
+        np.array([r.total_dv_m_s for r in records], dtype=np.float64),
+        np.array([r.converged for r in records], dtype=np.bool_),
     )
     return EnsembleResult(
         master_seed=master_seed,
@@ -245,24 +312,31 @@ def run_ensemble(
 
 
 def format_summary(result: EnsembleResult) -> str:
-    """Human-readable one-screen summary of an ensemble (the capstone report)."""
+    """Human-readable one-screen summary of an ensemble (the capstone / Rung A report)."""
     s = result.stats
     mean = s.miss_rtn_mean_m
     std = s.miss_rtn_std_m
-    return "\n".join(
-        (
-            f"Open-loop dispersion capstone — N={s.n}, master_seed={result.master_seed}",
-            f"  Nominal: perigee {result.nominal_perigee_alt_m / 1e3:.1f} km,"
-            f" coast {result.nominal_toa_s / 3600:.2f} h",
-            "  Interception miss vs nominal, RTN frame [m] (T = dr_p/dv_a lever):",
-            f"    bias R/T/N = {mean[0]:+.1f} / {mean[1]:+.1f} / {mean[2]:+.1f}",
-            f"    std  R/T/N = {std[0]:.1f} / {std[1]:.1f} / {std[2]:.1f}",
-            f"  Time-of-arrival miss: {s.toa_miss_mean_s:+.2f} ± {s.toa_miss_std_s:.2f} s",
-            f"  Perigee (diagnostic, low=good): {s.perigee_alt_mean_m / 1e3:.1f}"
-            f" ± {s.perigee_alt_std_m / 1e3:.2f} km"
-            f" [min {s.perigee_alt_min_m / 1e3:.1f}, max {s.perigee_alt_max_m / 1e3:.1f}]",
+    controlled = any(r.control_log for r in result.records)
+    title = "Closed-loop dispersion ensemble" if controlled else "Open-loop dispersion capstone"
+    lines = [
+        f"{title} — N={s.n}, master_seed={result.master_seed}",
+        f"  Nominal: perigee {result.nominal_perigee_alt_m / 1e3:.1f} km,"
+        f" coast {result.nominal_toa_s / 3600:.2f} h",
+        "  Interception miss vs nominal, RTN frame [m] (T = dr_p/dv_a lever):",
+        f"    bias R/T/N = {mean[0]:+.1f} / {mean[1]:+.1f} / {mean[2]:+.1f}",
+        f"    std  R/T/N = {std[0]:.1f} / {std[1]:.1f} / {std[2]:.1f}",
+        f"  Time-of-arrival miss: {s.toa_miss_mean_s:+.2f} ± {s.toa_miss_std_s:.2f} s",
+        f"  Perigee (diagnostic, low=good): {s.perigee_alt_mean_m / 1e3:.1f}"
+        f" ± {s.perigee_alt_std_m / 1e3:.2f} km"
+        f" [min {s.perigee_alt_min_m / 1e3:.1f}, max {s.perigee_alt_max_m / 1e3:.1f}]",
+    ]
+    if controlled:
+        lines.append(
+            f"  Correction Δv [m/s]: mean {s.total_dv_mean_m_s:.4f},"
+            f" max {s.total_dv_max_m_s:.4f} (std {s.total_dv_std_m_s:.4f})"
         )
-    )
+        lines.append(f"  Corrector converged: {s.converged_fraction * 100:.0f}% of {s.n} runs")
+    return "\n".join(lines)
 
 
 def main() -> None:

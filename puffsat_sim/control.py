@@ -98,15 +98,22 @@ def solve_apogee_correction(
     tol_m: float = 1.0,
     max_iter: int = 8,
     fd_step_m_s: float = 1.0e-3,
-    max_step_m_s: float = 50.0,
+    max_step_m_s: float = 2.0,
 ) -> ControlPlan:
     """Solve for the apogee correction Δv (RTN) nulling the interception miss.
 
     Newton on a finite-difference Jacobian, starting from zero correction.  Converges
     when the EME2000 position residual falls below ``tol_m``; a singular Jacobian or
     exhausting ``max_iter`` returns ``converged=False`` (the authority boundary), not
-    an exception.  ``max_step_m_s`` caps each Newton step against an ill-conditioned
-    Jacobian.  ``iterations`` is the number of Newton steps taken.
+    an exception.  ``iterations`` is the number of Newton steps taken.
+
+    ``max_step_m_s`` caps each Newton step at the *physical* correction scale (apogee
+    corrections are O(0.1–1 m/s)).  This is load-bearing, not just guarding an
+    ill-conditioned Jacobian: the 200 km target is an altitude event with free
+    time-of-arrival, so a far, high-Δv orbit can re-cross at the same inertial point
+    much later — a spurious root the cap keeps Newton from wandering into.  A run that
+    genuinely needs more than the cap is past the authority boundary and reads as
+    non-converged, which is the honest A3 outcome.
     """
     target_pos = np.asarray(target.position_m, dtype=np.float64)
     x = np.zeros(3, dtype=np.float64)

@@ -85,6 +85,21 @@ class TestAuthorityBoundary:
         assert not plan.converged  # recorded, not raised
         assert len(plan.actions) == 1
 
+    def test_step_cap_bounds_motion_and_flags_unreachable_target(self) -> None:
+        # A lever so weak that the unconstrained Newton step would be enormous; the
+        # cap bounds each step to the physical correction scale (it keeps the real
+        # solver out of the spurious far-ToA root), so an out-of-reach target reads as
+        # honest non-convergence rather than a runaway Δv.
+        weak = np.eye(3)  # 1 m per (m/s): nulling a 10 km miss would want 10 km/s
+        plan = solve_apogee_correction(
+            _linear_predict(weak, np.array([1.0e4, 0.0, 0.0])),
+            Target((0.0, 0.0, 0.0)),
+            max_iter=2,
+            max_step_m_s=2.0,
+        )
+        assert not plan.converged
+        assert plan.actions[0].dv_mag_m_s <= 2.0 * 2 + 1e-9  # ≤ max_iter × cap
+
     def test_exhausting_iterations_records_non_convergence(self) -> None:
         # A diverging map the Newton step cannot null within the iteration ceiling.
         def predict(dv_rtn: Vec3) -> Vec3:
