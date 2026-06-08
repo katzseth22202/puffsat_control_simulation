@@ -15,6 +15,12 @@ module = ["orekit_jpype", "orekit_jpype.*", "org.*", "com.*", "java.*", "javax.*
 ignore_missing_imports = true
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+# The constant-space-weather adapter implements a Java interface via JPype, whose
+# @JOverride surfaces as an untyped decorator; the rest of the module stays strict.
+module = "puffsat_sim.forces._space_weather"
+disallow_untyped_decorators = false
+
 # ---------------------------------------------------------------------------
 # ruff
 # ---------------------------------------------------------------------------
@@ -42,6 +48,10 @@ ignore = [
     "ANN401", # typing.Any disallowed — necessary at the JVM/Python boundary where
               # Orekit objects have no type stubs
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# JPype interface override methods must keep Orekit's Java method names (camelCase).
+"puffsat_sim/forces/_space_weather.py" = ["N802"]
 
 # ---------------------------------------------------------------------------
 # pytest

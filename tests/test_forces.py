@@ -8,11 +8,15 @@ import math
 
 import pytest
 
-from puffsat_sim.forces import Geopotential
+from puffsat_sim.forces import Geopotential, Relativity
 from puffsat_sim.forces.drag import drag_deceleration, std_atm_density
 from puffsat_sim.forces.geopotential import (
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
+)
+from puffsat_sim.forces.relativity import (
+    schwarzschild_apsidal_advance_per_orbit,
+    schwarzschild_perigee_advance_per_orbit_m,
 )
 from puffsat_sim.forces.srp import srp_acceleration
 from puffsat_sim.forces.third_body import (
@@ -210,3 +214,45 @@ class TestTidalAccelerationRatio:
         # At 400 km LEO apogee the Moon's tidal effect is completely negligible (<1e-6)
         ratio = tidal_acceleration_ratio(400_000.0, self._MOON_MU, self._MOON_DIST)
         assert ratio < 1e-6
+
+
+class TestRelativitySpec:
+    def test_is_parameter_free_and_frozen(self) -> None:
+        # Parameter-free: all instances are equal (frozen dataclass, no fields).
+        assert Relativity() == Relativity()
+
+
+class TestSchwarzschildAdvance:
+    """Verify the Schwarzschild apsidal-advance formula for the reference orbit.
+
+    Δϖ = 6π·GM / (c²·a·(1 − e²)).  For the 50 km × 150 000 km orbit this is
+    ~6.77e-9 rad/orbit, displacing perigee by ~4.4 cm/orbit — negligible at the
+    orbit-level (km-to-m) scale but right at the deferred 5 cm terminal budget.
+    """
+
+    _A, _E = keplerian_elements(PERIGEE_ALT_M, APOGEE_ALT_M)
+
+    def test_advance_matches_hand_computed_value(self) -> None:
+        # 6π·GM/(c²·a·(1−e²)) ≈ 6.77e-9 rad/orbit for the reference orbit.
+        advance = schwarzschild_apsidal_advance_per_orbit(self._A, self._E)
+        assert advance == pytest.approx(6.77e-9, rel=0.02)
+
+    def test_advance_is_prograde(self) -> None:
+        assert schwarzschild_apsidal_advance_per_orbit(self._A, self._E) > 0.0
+
+    def test_perigee_displacement_is_a_few_cm(self) -> None:
+        # r_p·Δϖ ≈ 4.4 cm/orbit.
+        disp = schwarzschild_perigee_advance_per_orbit_m(self._A, self._E)
+        assert 0.01 < disp < 0.10
+
+    def test_advance_grows_with_eccentricity(self) -> None:
+        # Higher e shrinks (1 − e²), so the advance grows at fixed a.
+        low_e = schwarzschild_apsidal_advance_per_orbit(self._A, 0.5)
+        high_e = schwarzschild_apsidal_advance_per_orbit(self._A, 0.92)
+        assert high_e > low_e
+
+    def test_advance_shrinks_with_semi_major_axis(self) -> None:
+        # Larger a weakens the relativistic correction at fixed e.
+        near = schwarzschild_apsidal_advance_per_orbit(8.0e6, self._E)
+        far = schwarzschild_apsidal_advance_per_orbit(8.0e7, self._E)
+        assert near > far

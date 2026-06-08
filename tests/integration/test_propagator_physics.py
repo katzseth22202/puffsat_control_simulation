@@ -22,6 +22,7 @@ import pytest
 from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import SUN_RADIUS_M
+from puffsat_sim.forces import AtmosphericDrag, Geopotential, Relativity
 from puffsat_sim.forces.geopotential import (
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
@@ -92,6 +93,16 @@ def pos_j2_third_body(config: OrbitalConfig) -> tuple[float, float, float]:
 @pytest.fixture(scope="module")
 def pos_srp(config: OrbitalConfig) -> tuple[float, float, float]:
     return _final_position(config, presets.j2_third_body_srp())
+
+
+@pytest.fixture(scope="module")
+def pos_j2_relativity(config: OrbitalConfig) -> tuple[float, float, float]:
+    return _final_position(config, PhysicsConfig((Geopotential(degree=2), Relativity())))
+
+
+@pytest.fixture(scope="module")
+def pos_geopotential_8x8(config: OrbitalConfig) -> tuple[float, float, float]:
+    return _final_position(config, PhysicsConfig((Geopotential(degree=8, order=8),)))
 
 
 def test_keplerian_one_period_round_trip(config: OrbitalConfig) -> None:
@@ -165,8 +176,41 @@ def test_srp_perturbs_orbit(
     assert math.dist(pos_j2_third_body, pos_srp) > 10.0
 
 
+def test_higher_degree_gravity_perturbs_orbit(
+    pos_j2: tuple[float, float, float],
+    pos_geopotential_8x8: tuple[float, float, float],
+) -> None:
+    """The 8×8 truth field must move the one-period endpoint by ~km vs pure J2.
+
+    Beyond J2 the harmonics bite only near perigee, but over a pass they reach
+    ~km scale at orbit level (measured ~1.8 km), so the truth model carries an
+    8×8 field rather than J2 alone.
+    """
+    assert 500.0 < math.dist(pos_j2, pos_geopotential_8x8) < 5_000.0
+
+
+def test_relativity_perturbs_orbit(
+    pos_j2: tuple[float, float, float],
+    pos_j2_relativity: tuple[float, float, float],
+) -> None:
+    """Schwarzschild relativity must shift the one-period endpoint by ~1 m.
+
+    Differencing two runs that share J2 and integrator settings makes the
+    integration error common-mode, isolating the relativistic apsidal-advance
+    signal (measured ~1.04 m at the apogee endpoint).  Negligible at orbit level
+    but carried in the truth model for the deferred 5 cm terminal budget.
+    """
+    assert 0.1 < math.dist(pos_j2, pos_j2_relativity) < 10.0
+
+
 def test_drag_removes_orbital_energy(config: OrbitalConfig) -> None:
-    """Specific orbital energy at the 200 km crossing must be lower with drag on."""
+    """Specific orbital energy at the 200 km crossing must be lower with drag on.
+
+    Drag is isolated by comparing full_force against itself with only the drag
+    force removed (all conservative forces + SRP held identical), so the energy
+    difference is the work drag removes — not a geopotential/relativity mismatch,
+    which would confound a comparison against the lower-fidelity j2_third_body_srp.
+    """
     mu = float(Constants.WGS84_EARTH_MU)
     earth = _earth()
 
@@ -181,9 +225,46 @@ def test_drag_removes_orbital_energy(config: OrbitalConfig) -> None:
         v = float(pv.getVelocity().getNorm())
         return 0.5 * v * v - mu / r
 
-    energy_no_drag = energy_at_interception(presets.j2_third_body_srp())
-    energy_with_drag = energy_at_interception(presets.full_force())
-    assert energy_with_drag < energy_no_drag
+    full = presets.full_force()
+    no_drag = PhysicsConfig(
+        tuple(p for p in full.perturbations if not isinstance(p, AtmosphericDrag))
+    )
+    assert energy_at_interception(full) < energy_at_interception(no_drag)
+
+
+def test_f10p7_drives_drag_density(config: OrbitalConfig) -> None:
+    """Higher F10.7/Ap must inflate thermospheric density → more drag energy loss.
+
+    Confirms the spec's f10p7/ap reach NRLMSISE-00 through the constant space-weather
+    provider: an active-sun draw removes more orbital energy by the 200 km crossing
+    than a quiet-sun draw, all else equal.  Built on full_force (swapping only the
+    drag spec): its rich near-perigee dynamics keep the adaptive integrator stable
+    through the descent, where a sparse J2+drag config can overshoot (design doc §6.2
+    regime-switching).
+    """
+    mu = float(Constants.WGS84_EARTH_MU)
+    earth = _earth()
+
+    def energy_at_interception(f10p7: float, ap: float) -> float:
+        physics = PhysicsConfig(
+            tuple(
+                AtmosphericDrag(cd_area_over_mass=0.04, f10p7=f10p7, ap=ap)
+                if isinstance(p, AtmosphericDrag)
+                else p
+                for p in presets.full_force().perturbations
+            )
+        )
+        prop = build_propagator(config, physics)
+        prop.addEventDetector(
+            AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
+        )
+        state = prop.propagate(_abs_date(config.epoch).shiftedBy(_period(config)))
+        pv = state.getPVCoordinates()
+        r = float(pv.getPosition().getNorm())
+        v = float(pv.getVelocity().getNorm())
+        return 0.5 * v * v - mu / r
+
+    assert energy_at_interception(250.0, 50.0) < energy_at_interception(70.0, 5.0)
 
 
 def test_eclipse_detector_runs_full_period(config: OrbitalConfig) -> None:

@@ -9,15 +9,17 @@ from __future__ import annotations
 
 from puffsat_sim.forces.drag import AtmosphericDrag
 from puffsat_sim.forces.geopotential import Geopotential
+from puffsat_sim.forces.relativity import Relativity
 from puffsat_sim.forces.srp import SolarRadiation
 from puffsat_sim.forces.third_body import ThirdBody
 
-Perturbation = Geopotential | ThirdBody | SolarRadiation | AtmosphericDrag
+Perturbation = Geopotential | ThirdBody | SolarRadiation | AtmosphericDrag | Relativity
 
 __all__ = [
     "AtmosphericDrag",
     "Geopotential",
     "Perturbation",
+    "Relativity",
     "SolarRadiation",
     "ThirdBody",
 ]

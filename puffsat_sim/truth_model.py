@@ -29,11 +29,15 @@ from datetime import datetime
 from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import EARTH_RADIUS_M, SUN_RADIUS_M
-from puffsat_sim.forces import AtmosphericDrag, SolarRadiation
+from puffsat_sim.forces import AtmosphericDrag, Geopotential, Relativity, SolarRadiation
 from puffsat_sim.forces.drag import drag_deceleration
 from puffsat_sim.forces.geopotential import (
     j2_apsidal_precession_rate,
     j2_nodal_regression_rate,
+)
+from puffsat_sim.forces.relativity import (
+    schwarzschild_apsidal_advance_per_orbit,
+    schwarzschild_perigee_advance_per_orbit_m,
 )
 from puffsat_sim.forces.srp import srp_acceleration
 from puffsat_sim.forces.third_body import lunar_tidal_ratio, solar_tidal_ratio
@@ -202,6 +206,34 @@ def report_j2_signatures(orbital_config: OrbitalConfig) -> None:
     )
 
 
+def report_higher_order_gravity_signatures(orbital_config: OrbitalConfig) -> None:
+    """Report the non-J2 geopotential (the truth model uses an 8×8 field).
+
+    Beyond J2 the harmonics fall off as (Rₑ/r)^ℓ — dead at the apogee, biting only
+    near perigee — yet over a pass they reach ~km scale at orbit level.  Confirms
+    the higher-degree field is wired by differencing one-period endpoints: J2 vs
+    8×8 (full) and J2 vs degree-8 zonal-only (tesserals dominate the difference).
+    """
+    a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
+    epoch = _to_absolute_date(orbital_config.epoch)
+
+    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
+        prop = build_propagator(orbital_config, physics_config)
+        pv = prop.propagate(epoch.shiftedBy(period)).getPVCoordinates().getPosition()
+        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
+
+    pos_j2 = _final_pos(presets.j2())
+    pos_8x8 = _final_pos(PhysicsConfig((Geopotential(degree=8, order=8),)))
+    pos_8z = _final_pos(PhysicsConfig((Geopotential(degree=8, order=0),)))
+    dr_full = math.sqrt(sum((p - q) ** 2 for p, q in zip(pos_j2, pos_8x8, strict=True)))
+    dr_zonal = math.sqrt(sum((p - q) ** 2 for p, q in zip(pos_j2, pos_8z, strict=True)))
+
+    print("  Higher-degree gravity signature report (truth field 8×8):")
+    print(f"    One-period endpoint drift J2 → 8×8 (full)    : {dr_full / 1e3:.3f} km")
+    print(f"    One-period endpoint drift J2 → degree-8 zonal: {dr_zonal / 1e3:.3f} km")
+
+
 def report_third_body_signatures(orbital_config: OrbitalConfig) -> None:
     """Report third-body Sun + Moon perturbations.
 
@@ -290,15 +322,20 @@ def report_srp_signatures(orbital_config: OrbitalConfig) -> None:
 def report_drag_signatures(orbital_config: OrbitalConfig) -> None:
     """Report NRLMSISE-00 atmospheric drag.
 
-    Propagates from apogee to the 200 km descent crossing with SRP-only and
-    full-force.  The difference in orbital specific energy at that altitude
-    confirms drag is removing energy during the terminal descent; the analytic
-    deceleration at key altitudes gives the expected order of magnitude.
+    Propagates from apogee to the 200 km descent crossing with the full force model
+    and with the same model minus drag.  Isolating drag this way (rather than
+    against the lower-fidelity j2_third_body_srp) keeps the geopotential and
+    relativity identical, so the energy/speed difference is the work drag removes,
+    not a conservative-potential mismatch.  The analytic deceleration at key
+    altitudes gives the expected order of magnitude.
 
     Design doc §4: drag "bites below ~300-400 km" — shown by comparing energy at
     200 km (interception altitude) with and without drag.
     """
     physics_full = presets.full_force()
+    physics_no_drag = PhysicsConfig(
+        tuple(p for p in physics_full.perturbations if not isinstance(p, AtmosphericDrag))
+    )
     a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
     mu: float = float(Constants.WGS84_EARTH_MU)
@@ -328,10 +365,10 @@ def report_drag_signatures(orbital_config: OrbitalConfig) -> None:
     # Both arcs stop at the same 200 km altitude (the event fixes position and time),
     # so the meaningful drag signatures are the loss of specific orbital energy and the
     # resulting speed reduction at the crossing — not the position, which barely moves.
-    energy_srp, speed_srp = _energy_and_speed_at_200km(presets.j2_third_body_srp())
+    energy_no_drag, speed_no_drag = _energy_and_speed_at_200km(physics_no_drag)
     energy_full, speed_full = _energy_and_speed_at_200km(physics_full)
-    d_energy = energy_full - energy_srp
-    d_speed = speed_full - speed_srp
+    d_energy = energy_full - energy_no_drag
+    d_speed = speed_full - speed_no_drag
 
     drag_spec = next(p for p in physics_full.perturbations if isinstance(p, AtmosphericDrag))
     cd_am = drag_spec.cd_area_over_mass
@@ -343,10 +380,47 @@ def report_drag_signatures(orbital_config: OrbitalConfig) -> None:
     print("  Drag signature report (NRLMSISE-00):")
     print(f"    Analytic drag decel @ 200 km: {a_drag_200:.3e} m/s²")
     print(f"    Analytic drag decel @ 300 km: {a_drag_300:.3e} m/s²")
-    print(f"    Orbital energy at 200 km — no drag: {energy_srp:.1f} J/kg")
+    print(f"    Orbital energy at 200 km — no drag: {energy_no_drag:.1f} J/kg")
     print(f"    Orbital energy at 200 km — with drag: {energy_full:.1f} J/kg")
     print(f"    ΔE from drag: {d_energy:.1f} J/kg  (negative = drag removed energy)")
     print(f"    Speed reduction at 200 km from drag: {d_speed * 100.0:+.3f} cm/s")
+
+
+def report_relativity_signatures(orbital_config: OrbitalConfig) -> None:
+    """Report the Schwarzschild relativistic perturbation.
+
+    Isolates relativity by differencing one-period endpoints with and without it
+    (J2 baseline vs J2+relativity); the shared J2 and integrator settings make the
+    integration errors common-mode, so the difference is the relativity signal.
+    Prints the closed-form apsidal advance and its ~cm/orbit perigee displacement.
+
+    Relativity is negligible at the orbit-level (km-to-m) scale but ~cm per pass on
+    this high-e orbit — the deferred 5 cm terminal-centering budget (design doc §7).
+    """
+    a, e = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(a)
+    epoch = _to_absolute_date(orbital_config.epoch)
+
+    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
+        prop = build_propagator(orbital_config, physics_config)
+        state = prop.propagate(epoch.shiftedBy(period))
+        pv = state.getPVCoordinates().getPosition()
+        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
+
+    pos_j2 = _final_pos(presets.j2())
+    pos_j2_rel = _final_pos(PhysicsConfig((Geopotential(degree=2), Relativity())))
+    dr = math.sqrt(sum((p - q) ** 2 for p, q in zip(pos_j2, pos_j2_rel, strict=True)))
+
+    d_pomega = schwarzschild_apsidal_advance_per_orbit(a, e)
+    d_perigee_cm = schwarzschild_perigee_advance_per_orbit_m(a, e) * 100.0
+    arcsec_per_orbit = math.degrees(d_pomega) * 3600.0
+
+    print("  Relativity signature report (Schwarzschild):")
+    print(
+        f"    Analytic apsidal advance : {d_pomega:.3e} rad/orbit  ({arcsec_per_orbit:.3e} arcsec)"
+    )
+    print(f"    Perigee displacement     : {d_perigee_cm:.2f} cm/orbit")
+    print(f"    One-period endpoint drift (J2 → J2+relativity): {dr:.3f} m")
 
 
 def main() -> None:
@@ -356,11 +430,15 @@ def main() -> None:
     print()
     report_j2_signatures(mission.NOMINAL_CONFIG)
     print()
+    report_higher_order_gravity_signatures(mission.NOMINAL_CONFIG)
+    print()
     report_third_body_signatures(mission.NOMINAL_CONFIG)
     print()
     report_srp_signatures(mission.NOMINAL_CONFIG)
     print()
     report_drag_signatures(mission.NOMINAL_CONFIG)
+    print()
+    report_relativity_signatures(mission.NOMINAL_CONFIG)
 
 
 if __name__ == "__main__":

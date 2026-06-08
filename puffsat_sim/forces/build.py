@@ -15,21 +15,26 @@ import puffsat_sim.jvm  # noqa: F401  boots the JVM before any org.orekit import
 
 from org.orekit.bodies import CelestialBodyFactory, OneAxisEllipsoid
 from org.orekit.forces.drag import DragForce, IsotropicDrag
-from org.orekit.forces.gravity import HolmesFeatherstoneAttractionModel, ThirdBodyAttraction
+from org.orekit.forces.gravity import (
+    HolmesFeatherstoneAttractionModel,
+    Relativity as RelativityForce,
+    ThirdBodyAttraction,
+)
 from org.orekit.forces.gravity.potential import GravityFieldFactory
 from org.orekit.forces.radiation import IsotropicRadiationSingleCoefficient, SolarRadiationPressure
 from org.orekit.frames import FramesFactory
 from org.orekit.models.earth.atmosphere import NRLMSISE00
-from org.orekit.models.earth.atmosphere.data import CssiSpaceWeatherData
 from org.orekit.utils import Constants, IERSConventions
 
 from puffsat_sim.forces import (
     AtmosphericDrag,
     Geopotential,
     Perturbation,
+    Relativity,
     SolarRadiation,
     ThirdBody,
 )
+from puffsat_sim.forces._space_weather import constant_space_weather
 
 
 @dataclass(frozen=True)
@@ -77,12 +82,15 @@ def to_force_models(perturbation: Perturbation, env: Environment) -> list[Any]:
         case SolarRadiation(cr_area_over_mass=cr_area_over_mass):
             srp_model = IsotropicRadiationSingleCoefficient(cr_area_over_mass, 1.0)
             return [SolarRadiationPressure(env.sun, env.earth_ellipsoid, srp_model)]
-        case AtmosphericDrag(cd_area_over_mass=cd_area_over_mass):
-            # NRLMSISE-00 driven by real/predicted CSSI space weather (1957–2096).
-            # f10p7 / ap are reserved for the Monte Carlo per-run drag bias (Rung D).
-            space_weather = CssiSpaceWeatherData("SpaceWeather-All-v1.2.txt")
-            atmosphere = NRLMSISE00(space_weather, env.sun, env.earth_ellipsoid)
+        case AtmosphericDrag(cd_area_over_mass=cd_area_over_mass, f10p7=f10p7, ap=ap):
+            # NRLMSISE-00 driven by the spec's constant F10.7/Ap (design doc §16.7),
+            # decoupling drag density from the calendar so the Monte Carlo can sample
+            # space weather by constructing the spec with different f10p7 / ap.
+            atmosphere = NRLMSISE00(constant_space_weather(f10p7, ap), env.sun, env.earth_ellipsoid)
             drag_model = IsotropicDrag(cd_area_over_mass, 1.0)
             return [DragForce(atmosphere, drag_model)]
+        case Relativity():
+            # Schwarzschild PN correction; same μ as the central attraction.
+            return [RelativityForce(Constants.WGS84_EARTH_MU)]
         case _:
             assert_never(perturbation)

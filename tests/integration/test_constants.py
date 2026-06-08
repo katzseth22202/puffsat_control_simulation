@@ -27,3 +27,7 @@ def test_earth_radius_matches_orekit() -> None:
 
 def test_earth_mu_matches_orekit() -> None:
     assert constants.WGS84_MU == pytest.approx(float(Constants.WGS84_EARTH_MU))
+
+
+def test_speed_of_light_matches_orekit() -> None:
+    assert constants.SPEED_OF_LIGHT_M_S == pytest.approx(float(Constants.SPEED_OF_LIGHT))

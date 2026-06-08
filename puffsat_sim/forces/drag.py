@@ -18,7 +18,9 @@ class AtmosphericDrag:
 
     cd_area_over_mass is the lumped Cd·(A/m) [m²/kg]; Cd is folded in so the
     Orekit model uses an effective coefficient of 1.  f10p7 / ap are the solar
-    flux and geomagnetic indices for the Monte Carlo per-run drag bias (Rung D).
+    flux and geomagnetic indices that drive NRLMSISE-00 directly (constant per
+    run via a custom space-weather provider in forces/build.py); the Monte Carlo
+    samples them per run to perturb drag density (design doc §16.7).
     """
 
     cd_area_over_mass: float
