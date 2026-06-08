@@ -34,10 +34,16 @@ Three decoupled pieces in a closed loop:
 3. **MPC controller** — discrete midcourse corrections during coast; continuous
    terminal burn 600 → 200 km for drag rejection and final aim.
 
-Output: Monte Carlo distribution of perigee altitude, interception miss, and
-propellant consumed. The mission-killing event is perigee dropping below ~120 km
-(burnup). The paper claims <2% of 25 kg PuffSat mass for propellant; the sim
-tests that.
+Output: Monte Carlo distribution of interception miss at 200 km, perigee altitude,
+and propellant consumed. The mission-killing event is **failing the 200 km
+interception** (missing the pusher plate) — that is where the mission succeeds, by
+transferring momentum to the target rocket (paper §2). A low perigee (~50 km) is
+*intended*: it deorbits PuffSat dry mass and burns up any PuffSat that misses, for
+debris disposal (paper §9, `sec:handling_space_debris`) — so burn-up is the desired
+outcome on a miss, **not** a failure. Perigee is therefore a diagnostic (the §8
+`dr_p/dv_a` lever, and a debris-disposal-safety margin where *low is good*), not a
+success criterion. The paper claims <2% of 25 kg PuffSat mass for propellant; the
+sim tests that.
 
 ## Architecture decisions (do not relitigate without reading the design doc)
 
@@ -171,7 +177,8 @@ No pip install step — flat layout, Python finds `puffsat_sim/` directly from t
 
 ```bash
 make all       # mypy + lint + format-check + test
-make run       # Rung A truth model (puffsat_sim.truth_model)
+make run       # truth-model report: reference orbit + per-force signatures
+make capstone  # open-loop dispersion capstone (smoke N=50; puffsat_sim.montecarlo)
 make test      # pytest
 make mypy      # strict type check
 make lint      # ruff check
@@ -198,8 +205,10 @@ make clean     # remove caches
 - `puffsat_sim/orbital_math.py` — foundational two-body helpers only (pure).
 - `puffsat_sim/orbital_plane.py` — `orbital_config_from_cities()` great-circle plane builder (pure).
 - `puffsat_sim/mission.py` — reference scenario: altitudes, epoch, `NOMINAL_CONFIG` (pure, single source).
-- `puffsat_sim/propagator.py` — exposes `build_propagator()`; attaches the perturbations' force models.
+- `puffsat_sim/propagator.py` — `build_propagator()` (element-based) and `build_propagator_from_orbit()` (state-based seam for the MC harness); attaches force models.
 - `puffsat_sim/truth_model.py` — `make run` report runner: reference orbit + per-force signatures.
+- `puffsat_sim/dispersion.py` — pure MC core: `DispersionSpec`, `RunInputs`, `sample_run_inputs`, RTN math, `summarize` (no JVM).
+- `puffsat_sim/montecarlo.py` — JVM-side open-loop dispersion harness: `run_ensemble` (`make capstone`); §14.1 `control=None` hook for Rung D (ADR 0002).
 - `tests/` — pure-Python unit suite (no JVM); `tests/integration/` requires a live JVM.
 
 ## License

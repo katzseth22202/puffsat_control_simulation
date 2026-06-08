@@ -9,8 +9,8 @@ See `puffsat_control_sim_design.md` for the physics/control specification.
 **Perturbation**:
 A force acting on the PuffSat beyond Earth two-body gravity, represented as a
 small frozen pure-Python spec (`Geopotential`, `ThirdBody`, `SolarRadiation`,
-`AtmosphericDrag`). Carries only the parameters that force needs; constructs no
-Orekit objects.
+`AtmosphericDrag`, `Relativity`). Carries only the parameters that force needs
+(`Relativity` is parameter-free); constructs no Orekit objects.
 _Avoid_: force flag, perturbation model (the spec is not the Orekit model).
 
 **Force Model**:
@@ -43,6 +43,27 @@ A pure closed-form prediction of a **Perturbation**'s effect (J2 secular rates,
 tidal ratios, SRP/drag acceleration), living in that force's pure module. Used
 by integration tests (to assert) and by `truth_model`'s reports (to print) —
 it is not a method on the **Perturbation** interface.
+
+**DispersionSpec**:
+The swept knobs for one Monte Carlo ensemble — nominal values plus per-input 1σ
+(injection-Δv RTN axes, log-normal `Cd·(A/m)`/`Cr·(A/m)`, F10.7/Ap). Pure value
+object in `dispersion.py`. It is the *distribution*, not a sample.
+_Avoid_: conflating it with the per-run draws (**RunInputs**).
+
+**RunInputs**:
+One run's sampled draws (RTN injection Δv plus the four log-normal coefficients /
+drivers) and its `run_index`; a run replays standalone from `master_seed` +
+`run_index` (§14.2). Pure; produced by `sample_run_inputs(rng, spec, i)`.
+
+**EnsembleResult**:
+The JVM-side output of `montecarlo.run_ensemble`: per-run `RunRecord`s plus the
+aggregate `EnsembleStats` (mean = aim bias, covariance = dispersion ellipsoid) and
+the nominal reference crossing. The Stage-1 capstone is `run_ensemble(…, control=None)`.
+
+**RTN frame**:
+The satellite-local orbital frame — Radial (outward), Transverse (in-plane, toward
+motion), Normal (orbit-normal). The interception miss is reported here; at apogee
+the Transverse axis is the tangential `dr_p/dv_a` lever (§8).
 
 ## Relationships
 
