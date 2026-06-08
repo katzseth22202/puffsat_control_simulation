@@ -56,9 +56,11 @@ drivers) and its `run_index`; a run replays standalone from `master_seed` +
 `run_index` (§14.2). Pure; produced by `sample_run_inputs(rng, spec, i)`.
 
 **EnsembleResult**:
-The JVM-side output of `montecarlo.run_ensemble`: per-run `RunRecord`s plus the
-aggregate `EnsembleStats` (mean = aim bias, covariance = dispersion ellipsoid) and
-the nominal reference crossing. The Stage-1 capstone is `run_ensemble(…, control=None)`.
+The result of `montecarlo.run_ensemble`: per-run `RunRecord`s plus the aggregate
+`EnsembleStats` (mean = aim bias, covariance = dispersion ellipsoid) and the nominal
+reference crossing. A pure value type (in `records.py`, with `RunRecord`) even though
+the JVM loop produces it, so the **Resume sink** can serialize it without Orekit. The
+Stage-1 capstone is `run_ensemble(…, control=None)`.
 
 **RTN frame**:
 The satellite-local orbital frame — Radial (outward), Transverse (in-plane, toward

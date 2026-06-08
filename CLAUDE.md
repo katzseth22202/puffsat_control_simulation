@@ -207,8 +207,10 @@ make clean     # remove caches
 - `puffsat_sim/mission.py` — reference scenario: altitudes, epoch, `NOMINAL_CONFIG` (pure, single source).
 - `puffsat_sim/propagator.py` — `build_propagator()` (element-based) and `build_propagator_from_orbit()` (state-based seam for the MC harness); attaches force models.
 - `puffsat_sim/truth_model.py` — `make run` report runner: reference orbit + per-force signatures.
-- `puffsat_sim/dispersion.py` — pure MC core: `DispersionSpec`, `RunInputs`, `sample_run_inputs`, RTN math, `summarize` (no JVM).
-- `puffsat_sim/montecarlo.py` — JVM-side open-loop dispersion harness: `run_ensemble` (`make capstone`); §14.1 `control=None` hook for Rung D (ADR 0002).
+- `puffsat_sim/dispersion.py` — pure MC core: `DispersionSpec`, `RunInputs`, `sample_run_inputs`, RTN math, `summarize`, `EnsembleStats` (no JVM).
+- `puffsat_sim/control.py` — pure Rung A1 differential corrector: `Target`/`ControlAction`/`ControlPlan` + `solve_apogee_correction` (Newton + finite-difference Jacobian; no JVM) (ADR 0003).
+- `puffsat_sim/records.py` — pure result value types `RunRecord` / `EnsembleResult` (no JVM, so the resume sink stays serializable/testable) (ADR 0003).
+- `puffsat_sim/montecarlo.py` — JVM-side dispersion harness: `run_ensemble` with the `control` hook (open-loop `control=None`, or the Rung A1 corrector via predict/execute); `make capstone` (ADR 0002, 0003).
 - `tests/` — pure-Python unit suite (no JVM); `tests/integration/` requires a live JVM.
 
 ## License

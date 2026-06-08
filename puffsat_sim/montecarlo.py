@@ -33,11 +33,10 @@ from org.hipparchus.geometry.euclidean.threed import Vector3D
 from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import EARTH_RADIUS_M
-from puffsat_sim.control import ControlAction, ControlPlan, Controller, Target
+from puffsat_sim.control import ControlPlan, Controller, Target
 from puffsat_sim.dispersion import (
     Basis,
     DispersionSpec,
-    EnsembleStats,
     RunInputs,
     Vec3,
     rtn_basis,
@@ -55,45 +54,13 @@ from puffsat_sim.forces import (
 )
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
+from puffsat_sim.records import EnsembleResult, RunRecord
 
 # Caps the adaptive integrator step on the terminal descent so a smooth low-drag arc
 # cannot overstep the 200 km altitude event below the surface ("point is inside
 # ellipsoid").  Interim fix for the §6.2 fragility, pending regime-switched
 # propagation; nominal and perturbed runs share it so the miss stays common-mode.
 _TERMINAL_MAX_STEP_S: float = 30.0
-
-
-@dataclass(frozen=True)
-class RunRecord:
-    """One run's outcome: inputs, the RTN miss, ToA error, perigee, and the control plan.
-
-    For the open-loop capstone (``control=None``) ``control_log`` is empty,
-    ``total_dv_m_s`` is 0, and ``converged`` is True — a superset of the open-loop
-    record.  Stays deeply immutable (tuples, frozen ``ControlAction``) so it logs to a
-    line-oriented sink and crosses processes safely (ADR 0003).
-    """
-
-    inputs: RunInputs
-    miss_rtn_m: Vec3
-    toa_miss_s: float
-    perigee_alt_m: float
-    crossing_position_m: Vec3
-    crossing_velocity_m_s: Vec3
-    control_log: tuple[ControlAction, ...]
-    total_dv_m_s: float
-    converged: bool
-    iterations: int
-
-
-@dataclass(frozen=True)
-class EnsembleResult:
-    """An ensemble's per-run records, aggregate statistics, and the nominal reference."""
-
-    master_seed: int
-    nominal_perigee_alt_m: float
-    nominal_toa_s: float
-    records: tuple[RunRecord, ...]
-    stats: EnsembleStats
 
 
 def replay_inputs(master_seed: int, spec: DispersionSpec, run_index: int) -> RunInputs:
