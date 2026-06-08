@@ -35,7 +35,11 @@ _ABS_TOL_M: Final[float] = 1e-3  # 1 mm absolute position / velocity tolerance
 _REL_TOL: Final[float] = 1e-10  # relative tolerance
 
 
-def build_propagator(orbital_config: OrbitalConfig, physics_config: PhysicsConfig) -> Any:
+def build_propagator(
+    orbital_config: OrbitalConfig,
+    physics_config: PhysicsConfig,
+    max_step_s: float = _MAX_STEP_S,
+) -> Any:
     """Return a configured Orekit propagator for the given run.
 
     No perturbations (PhysicsConfig.is_keplerian): analytical KeplerianPropagator.
@@ -43,6 +47,10 @@ def build_propagator(orbital_config: OrbitalConfig, physics_config: PhysicsConfi
 
     The propagator is initialised at orbital_config.epoch with mean anomaly
     orbital_config.mean_anomaly_at_epoch_rad (default π = apogee).
+
+    max_step_s caps the adaptive integrator step; the Monte Carlo harness lowers it
+    so the terminal descent to the 200 km event cannot overshoot below the surface
+    on a smooth low-drag arc (the §6.2 fragility, pending regime-switching).
 
     orbital_config.epoch must be a whole-second UTC datetime.
     """
@@ -70,15 +78,30 @@ def build_propagator(orbital_config: OrbitalConfig, physics_config: PhysicsConfi
         mu,
     )
 
+    return build_propagator_from_orbit(orbit, physics_config, max_step_s)
+
+
+def build_propagator_from_orbit(
+    orbit: Any, physics_config: PhysicsConfig, max_step_s: float = _MAX_STEP_S
+) -> Any:
+    """Return a propagator for an already-constructed Orekit orbit (any type).
+
+    The state-based seam (ADR 0002) used by the Monte Carlo harness: it perturbs
+    the apogee deployment state with an injection Δv, wraps it as a CartesianOrbit,
+    and propagates from it.  No perturbations → analytical KeplerianPropagator;
+    otherwise a NumericalPropagator carrying the perturbations' force models.
+    max_step_s caps the adaptive integrator step (see build_propagator).
+    """
     if physics_config.is_keplerian:
         return KeplerianPropagator(orbit)
+    return _build_numerical_propagator(orbit, physics_config, max_step_s)
 
-    return _build_numerical_propagator(orbit, physics_config)
 
-
-def _build_numerical_propagator(orbit: Any, physics_config: PhysicsConfig) -> Any:
+def _build_numerical_propagator(
+    orbit: Any, physics_config: PhysicsConfig, max_step_s: float = _MAX_STEP_S
+) -> Any:
     """Build a NumericalPropagator and attach the perturbations' force models."""
-    integrator = DormandPrince853Integrator(_MIN_STEP_S, _MAX_STEP_S, _ABS_TOL_M, _REL_TOL)
+    integrator = DormandPrince853Integrator(_MIN_STEP_S, max_step_s, _ABS_TOL_M, _REL_TOL)
     propagator = NumericalPropagator(integrator)
     propagator.setOrbitType(OrbitType.KEPLERIAN)
     propagator.setPositionAngleType(PositionAngleType.MEAN)

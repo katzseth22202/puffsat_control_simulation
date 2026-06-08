@@ -5,6 +5,7 @@ channels:
 dependencies:
   - python=3.11
   - orekit_jpype>=13.0    # JPype-based Orekit bridge (recommended over JCC-based orekit)
+  - numpy>=1.26           # Monte Carlo seeding (SeedSequence) + dispersion statistics
   - mypy>=1.9
   - pytest>=8.0
   - ruff>=0.4

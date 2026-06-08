@@ -2,12 +2,17 @@ PYTHON  := python
 PACKAGE := puffsat_sim
 TESTS   := tests
 
-.PHONY: all run test test-integration mypy lint format format-check data clean
+.PHONY: all run capstone test test-integration mypy lint format format-check data clean
 
 all: mypy lint format-check test
 
 run: orekit-data.zip
 	$(PYTHON) -m $(PACKAGE).truth_model
+
+# Open-loop dispersion capstone — smoke-sized ensemble (N=50; the resolved-tail
+# result needs N=10^3-10^4, a longer job).
+capstone: orekit-data.zip
+	$(PYTHON) -m $(PACKAGE).montecarlo
 
 # Pure-Python unit tests — no JVM required.
 test:
