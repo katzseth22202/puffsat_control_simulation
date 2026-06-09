@@ -1,6 +1,9 @@
 # Rung A2 two-burn statistical midcourse: minimum-Δv least-norm targeter
 
-**Status:** accepted
+**Status:** superseded by [ADR 0006](0006-a2-along-track-is-apogee-bound.md) — the
+mid-descent (900 km) node it specifies provides ~0 along-track authority; along-track/phase
+error is apogee-bound. The minimum-Δv least-norm *solver* below stands and is retained; the
+*node placement* and the "cheap two-burn split beats A1" premise do not.
 
 ## Context
 
