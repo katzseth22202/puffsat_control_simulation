@@ -16,6 +16,7 @@ EARTH_RADIUS_M: Final[float] = 6_378_137.0  # WGS84 equatorial radius [m]
 WGS84_MU: Final[float] = 3.986_004_418e14  # Earth gravitational parameter [m³/s²]
 J2: Final[float] = 1.08262668e-3  # EGM2008 zonal harmonic J2
 SPEED_OF_LIGHT_M_S: Final[float] = 299_792_458.0  # exact; for the relativistic correction
+STANDARD_GRAVITY_M_S2: Final[float] = 9.80665  # g₀ in the Isp→Δv rocket relation (exact, CGPM)
 
 # Solar radiation pressure at 1 AU [Pa = N/m²] — used for analytic SRP estimates.
 SRP_P0_PA: Final[float] = 4.56e-6
