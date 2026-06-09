@@ -126,3 +126,36 @@ would find surprising.
 - The map is **perfect-model** — an optimistic controllability floor. The realistic
   unknown-drag question (does the loop close with a divergent onboard model / UKF
   estimate?) is Rung C, checked against this floor.
+
+## Implementation notes (2026-06-09)
+
+Built in five TDD slices (`b2a051f` grid core, `d7e18ba` LM damping, `3a0c174` to_grid +
+overlays, `05e1db6` ToA gate, `faa4d33` run_sweep + re-tune). The decisions held; two
+empirical refinements emerged from the first live run:
+
+- **The map is controllable everywhere, Δv « budget, and ~1D in `Cr`.** The perfect-model
+  floor is flat and cheap: a transverse apogee Δv has ~2×10⁵ m-per-(m/s) authority over the
+  along-track crossing, so 0.5–2× coefficient dispersion nulls well under the 50 s-Isp
+  budget. Drag (`Cd`) is negligible at 150,000 km; the small cost is SRP over the coast. The
+  over-budget / uncontrollable regions (decision 2) exist in the design but are **not reached
+  on the coefficient axis** — they belong to the injection axis (A1/ADR 0003) and to Rung C.
+- **The near-singular direction is the pinned altitude, not an along-track wall — and `λ`
+  needed re-tuning.** Decision 3(i) anticipated a "near-singular along-track wall"; the
+  diagnosed singularity is instead the **radial/altitude** direction, pinned because 200 km is
+  an altitude *event* (cond ~10⁷). The default `lm_lambda = 1e-3·max(diag JᵀJ)` over-damped
+  (transverse authority ~2×10⁵), so the first sweep read all-non-converged with ~0 Δv — a
+  mis-tuning, not a physics wall. Lowered the default to **`1e-6`** (safe — only `lm=True`
+  callers; A1/A2 use plain Newton); `max_iter` headroom (15) is passed by the A3 controller,
+  **not** the global default, so A1/A2 keep their committed config. Plain Newton "works" but
+  wastes ~2.5 m/s fighting the pinned direction; LM regularizes it to ~0.01 m/s. This is what
+  ADR 0003 finding 3 required — `converged=False` now means out-of-authority, not mis-tuned.
+- **ToA gate wired default-off, not exercised here.** The cheap local solution dominates on
+  the coefficient axis, so no far root needed discriminating; the gate (`passes_toa_gate`,
+  threaded through `_run_record(toa_window_s=)`) stays for the injection axis and wider grids.
+- **Parked: 2-DOF retarget.** Dropping the pinned radial (target transverse+normal only) would
+  remove the near-singular direction at the source. Deferred — the re-tuned fixed-`λ` LM
+  suffices for the perfect-model grid; revisit if it proves fragile on a wider grid or under
+  Rung C noise.
+- **Runtime / sink.** A 3×3 full-force grid runs ~4 min (was ~16 with the over-damped config
+  burning all iterations). The deferred grid-resume sink stays deferred, but a ~120-point 2D
+  grid will be tens of minutes — revisit the sink when the grid grows, as decision 5 flagged.

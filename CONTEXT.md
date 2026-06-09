@@ -83,8 +83,11 @@ not a feedback compensator).
 The Rung A1 targeter — Newton iteration with a finite-difference Jacobian that solves
 for the apogee Δv nulling the **Interception miss**. Pure `solve_apogee_correction`
 in `control.py`, parameterized by a **Predict** callback; non-convergence is a
-recorded outcome (the authority boundary), not an error. _Avoid_: optimizer, MPC (MPC
-is the Rung-D replacement).
+recorded outcome (the **Authority boundary**), not an error. A3 adds two default-off
+options: Levenberg-Marquardt `λI` damping (`lm=`, regularizing the near-singular
+altitude-event direction) and a ToA-window gate (`passes_toa_gate`, rejecting the
+spurious far-revolution root); A1/A2 keep the plain Newton path. _Avoid_: optimizer,
+MPC (MPC is the Rung-D replacement).
 
 **Predict vs Execute**:
 The two propagation roles (ADR 0003). **Predict** is the onboard model handed to the
@@ -105,6 +108,34 @@ The newline-delimited JSON store of completed `RunRecord`s keyed by `run_index`.
 Recovery is run-granular: on restart, run only the missing indices and re-summarize —
 enabled by per-run seed reproducibility (`replay_inputs`, §14.2), never within-run
 integrator snapshots. _Avoid_: "checkpoint" implying mid-propagation state.
+
+**Controllability map (A3)**:
+The deterministic `Cd·(A/m)` × `Cr·(A/m)` sweep (ADR 0007): hold the targeter fixed, sweep
+the two lumped coefficients across a factor grid straddling nominal (injection zeroed), and
+record required Δv per cell. Built in `sweep.py` (`SweepSpec`, `grid_inputs`, `to_grid` →
+`SweepGrid`) and run by `montecarlo.run_sweep` → **SweepResult**. Perfect-model, so it is an
+*optimistic floor* — the unknown-drag question is Rung C. The built map came out controllable
+everywhere at Δv « budget and ~1D in `Cr`. _Avoid_: confusing it with the stochastic
+**DispersionSpec** ensemble — A3 is a deterministic grid, not a distribution.
+
+**SweepSpec / SweepResult**:
+Pure value types in `sweep.py`. **SweepSpec** is the deterministic grid (nominal `Cd`/`Cr` +
+per-axis factor range + resolution); **SweepResult** bundles the spec, the per-cell
+`RunRecord`s, and a dedicated factor-(1,1) `nominal` reference run. `SweepSpec` is to A3 what
+**DispersionSpec** is to the capstone — but a grid, not a distribution.
+
+**Authority boundary**:
+Where the fixed targeter runs out of control authority for a sub-budget solution — recorded
+as `converged=False`, never an exception (ADR 0003 finding 3). Resolved post-hoc into
+*over-budget* (a solution exists but exceeds the Isp/mass budget) vs *uncontrollable* (no
+valid solution) by `classify_controllability`. For A3's coefficient axis the boundary is not
+reached (controllable everywhere); it bites on the injection axis (A1).
+
+**σ-equivalent**:
+The reporting overlay (`sweep.sigma_equivalent`) mapping a deterministic sweep factor to its
+σ in the Rung-D log-normal (`k = ln(factor)/s`, `s = √(ln(1+cv²))`), so the **Controllability
+map**'s axis reads in σ of coefficient error — tying the A3 grid back to the capstone's
+sampling distribution.
 
 ## Relationships
 
@@ -129,6 +160,9 @@ integrator snapshots. _Avoid_: "checkpoint" implying mid-propagation state.
   cross-check.
 - An **EnsembleResult**'s **RunRecord**s stream to the **Resume sink** keyed by
   `run_index`; **EnsembleStats** is recomputed from the reloaded set.
+- The **Controllability map** reuses the corrector and harness: `run_sweep` shares
+  `_build_context` / `_run_record` with `run_ensemble`, and its **SweepResult** is the
+  deterministic counterpart of **EnsembleResult**.
 
 ## Example dialogue
 
