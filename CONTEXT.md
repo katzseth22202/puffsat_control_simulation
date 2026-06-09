@@ -93,8 +93,18 @@ MPC (MPC is the Rung-D replacement).
 The two propagation roles (ADR 0003). **Predict** is the onboard model handed to the
 **Controller** for its internal shooting (swapped for a divergent model at Rung C);
 **Execute** is the harness propagating the applied plan against truth — the recorded
-reality (an actuator model maps commanded→applied here at Rung B). Identical
-`full_force` at Rung A.
+reality (the **Actuator** maps commanded→applied here at Rung B). Identical
+`full_force` at Rung A; at Rung B they **diverge** — the corrector predicts impulsive
+while the Actuator executes a finite burn, so the residual interception miss is the
+measured actuator-realism erosion (ADR 0008).
+
+**Actuator (finite burn)**:
+The Rung B execution layer that turns a commanded impulsive Δv (from the **Differential
+corrector**, which stays impulsive) into a finite, mass-depleting burn — a single
+omnidirectional proportional cold-gas thruster (400 mN max, ~5 mN floor, ~1°/s slew; ADR
+0004). It is the commanded→applied map *inside* **Execute**; Isp is a post-processing sweep
+on the resulting Δv, not an actuator state. _Avoid_: "thruster" for the model (the model is
+the proportional abstraction of a bang-bang cluster, not the hardware).
 
 **ControlAction / ControlPlan**:
 Pure value types in `control.py`. A **ControlAction** is one commanded maneuver (node
