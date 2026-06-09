@@ -21,7 +21,9 @@ import numpy as np
 
 import puffsat_sim.jvm  # noqa: F401  boots the JVM before any org.orekit import
 
+from org.orekit.attitudes import FrameAlignedProvider
 from org.orekit.bodies import OneAxisEllipsoid
+from org.orekit.forces.maneuvers import ConstantThrustManeuver
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import CartesianOrbit, KeplerianOrbit
 from org.orekit.propagation.events import AltitudeDetector
@@ -32,6 +34,7 @@ from org.orekit.utils import Constants, IERSConventions, TimeStampedPVCoordinate
 from org.hipparchus.geometry.euclidean.threed import Vector3D
 
 from puffsat_sim import mission, presets
+from puffsat_sim.actuator import Actuator, plan_burn
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import EARTH_RADIUS_M
 from puffsat_sim.control import ControlPlan, Controller, Target, passes_toa_gate
@@ -73,6 +76,16 @@ from puffsat_sim.sweep import SweepResult, SweepSpec, grid_inputs
 _COAST_MAX_STEP_S: float = 600.0
 _HANDOFF_ALT_M: float = 800_000.0  # §6.3 drag-on guard band
 _TERMINAL_MAX_STEP_S: float = 30.0
+
+# Finite-burn execution (B1, ADR 0008): the propagator runs at a fictitious 1 kg so the
+# lumped Cd·(A/m) / Cr·(A/m) scale drag/SRP correctly, so the burn thrust is scaled to that
+# mass (F·m_p/m_wet) — reproducing the real a=F/m and burn duration of the 25 kg / 400 mN
+# actuator — and fires at a sentinel Isp so the executed arc is constant-mass (Isp-free
+# trajectory).  Real propellant is the pure Tsiolkovsky transform at the actuator's Isp
+# (puffsat_sim.actuator), per ADR 0004 decision 2.  Real-mass depletion coupled to descent
+# drag is deferred to B3 (its large anti-drag burn is the first consumer).
+_PROPAGATOR_MASS_KG: float = 1.0
+_BURN_ISP_SENTINEL_S: float = 1.0e12
 
 
 def physics_from_inputs(
@@ -147,13 +160,46 @@ def _coast_to_handoff(coast_prop: Any, epoch: Any, period: float, earth: Any) ->
 
 
 def _descend(
-    orbit: Any, physics: PhysicsConfig, epoch: Any, period: float, earth: Any
+    orbit: Any,
+    physics: PhysicsConfig,
+    epoch: Any,
+    period: float,
+    earth: Any,
+    maneuver: Any = None,
 ) -> _Crossing:
-    """Regime-switched descent to the 200 km crossing: coast (600 s) → 800 km → terminal (30 s)."""
+    """Regime-switched descent to the 200 km crossing: coast (600 s) → 800 km → terminal (30 s).
+
+    ``maneuver`` (B1) is an optional finite burn attached to the coast leg — the apogee
+    correction fires entirely above the hand-off, so the terminal leg is unaffected.
+    """
     coast = build_propagator_from_orbit(orbit, physics, _COAST_MAX_STEP_S)
+    if maneuver is not None:
+        coast.addForceModel(maneuver)
     handoff_state = _coast_to_handoff(coast, epoch, period, earth)
     terminal = build_propagator_from_orbit(handoff_state.getOrbit(), physics, _TERMINAL_MAX_STEP_S)
     return _propagate_to_interception(terminal, epoch, period, earth)
+
+
+def _finite_burn_maneuver(actuator: Actuator, correction_rtn: Vec3, ctx: _RunContext) -> Any:
+    """The ConstantThrustManeuver that executes the corrector's Δv as a finite burn (B1).
+
+    Thrust is scaled to the propagator's fictitious 1 kg (F·m_p/m_wet) so a=F/m and the burn
+    duration match the real 25 kg / 400 mN actuator; the sentinel Isp keeps the executed arc
+    constant-mass.  Direction is the inertial Δv, held fixed by a frame-aligned attitude.
+    """
+    burn = plan_burn(actuator, correction_rtn)
+    corr_eme = rtn_to_cartesian(correction_rtn, ctx.apo_basis)
+    norm = (corr_eme[0] ** 2 + corr_eme[1] ** 2 + corr_eme[2] ** 2) ** 0.5  # nonzero: caller guards
+    direction = Vector3D(corr_eme[0] / norm, corr_eme[1] / norm, corr_eme[2] / norm)
+    thrust_eff = _PROPAGATOR_MASS_KG * actuator.max_thrust_n / actuator.wet_mass_kg
+    return ConstantThrustManeuver(
+        ctx.apo_date,
+        burn.duration_s,
+        thrust_eff,
+        _BURN_ISP_SENTINEL_S,
+        FrameAlignedProvider(ctx.frame),
+        direction,
+    )
 
 
 def _apogee_state(orbital_config: OrbitalConfig) -> tuple[Any, Any, Any]:
@@ -186,6 +232,7 @@ def _run_record(
     inputs: RunInputs,
     control: Controller | None,
     toa_window_s: float | None = None,
+    actuator: Actuator | None = None,
 ) -> RunRecord:
     """Propagate one run: apply injection, solve+execute the control plan, record the miss.
 
@@ -194,18 +241,22 @@ def _run_record(
     crossing on the nominal aim to machine precision.  The injection Δv is baked into
     the closure, so the corrector solves for the *correction* alone, starting from zero.
 
+    ``actuator`` (B1, ADR 0008) makes ``execute`` a finite burn while ``predict`` stays
+    impulsive: the corrector solves the impulsive commanded Δv, truth fires it as a finite
+    maneuver, and the residual miss is the actuator-realism erosion.  ``None`` keeps the
+    Rung-A impulsive execution (commanded == applied).
+
     ``toa_window_s`` (default off) is the A3 spurious-far-root gate: a converged plan whose
     crossing falls outside ±window of the nominal ToA is recorded non-converged (ADR 0007
     decision 3iii).  ``run_ensemble`` / the capstone leave it ``None``.
     """
     physics = physics_from_inputs(inputs)
     injection_dv_eme = rtn_to_cartesian(inputs.dv_rtn_m_s, ctx.apo_basis)
+    injection = Vector3D(injection_dv_eme[0], injection_dv_eme[1], injection_dv_eme[2])
 
     def make_crossing(correction_rtn: Vec3) -> _Crossing:
         corr_eme = rtn_to_cartesian(correction_rtn, ctx.apo_basis)
-        vel = ctx.apo_vel.add(
-            Vector3D(injection_dv_eme[0], injection_dv_eme[1], injection_dv_eme[2])
-        ).add(Vector3D(corr_eme[0], corr_eme[1], corr_eme[2]))
+        vel = ctx.apo_vel.add(injection).add(Vector3D(corr_eme[0], corr_eme[1], corr_eme[2]))
         orbit = CartesianOrbit(
             TimeStampedPVCoordinates(ctx.apo_date, ctx.apo_pos, vel), ctx.frame, ctx.mu
         )
@@ -220,7 +271,23 @@ def _run_record(
     # node (elapsed_s=0), so it folds into the initial velocity; downstream multi-node
     # execution (ImpulseManeuver events) is an A2 addition.
     applied_rtn: Vec3 = plan.actions[0].dv_rtn_m_s if plan.actions else (0.0, 0.0, 0.0)
-    crossing = make_crossing(applied_rtn)
+    if actuator is not None and plan.actions and plan.actions[0].dv_mag_m_s > 0.0:
+        # B1: fire the correction as a finite burn (injection alone folds into the velocity).
+        orbit = CartesianOrbit(
+            TimeStampedPVCoordinates(ctx.apo_date, ctx.apo_pos, ctx.apo_vel.add(injection)),
+            ctx.frame,
+            ctx.mu,
+        )
+        crossing = _descend(
+            orbit,
+            physics,
+            ctx.epoch,
+            ctx.period,
+            ctx.earth,
+            maneuver=_finite_burn_maneuver(actuator, applied_rtn, ctx),
+        )
+    else:
+        crossing = make_crossing(applied_rtn)
 
     miss_vec: Vec3 = (
         crossing.position_m[0] - ctx.nominal.position_m[0],
@@ -291,12 +358,17 @@ def run_ensemble(
     orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
     control: Controller | None = None,
     sink_path: Path | None = None,
+    actuator: Actuator | None = None,
 ) -> EnsembleResult:
     """Run a dispersion ensemble and aggregate it.
 
     ``control`` is the §14.1 hook (ADR 0003): ``None`` is the open-loop capstone; a
     ``Controller`` (e.g. the Rung A1 ``solve_apogee_correction``) closes the loop, each
     run solving and executing its plan against the same full-force truth.
+
+    ``actuator`` (B1, ADR 0008) executes each commanded Δv as a finite mass-depleting burn
+    instead of an impulse (``predict`` stays impulsive); the residual miss is then the
+    actuator-realism erosion.  Requires a ``control``; ``None`` keeps impulsive execution.
 
     ``sink_path`` enables run-granular checkpoint/resume: completed records stream to a
     JSONL sink keyed by ``run_index``; on restart only the missing indices are run
@@ -311,7 +383,7 @@ def run_ensemble(
         reuse, todo = plan_resume(read_records(sink_path), master_seed, spec, n)
     records_by_index: dict[int, RunRecord] = dict(reuse)
     for i in todo:
-        record = _run_record(ctx, replay_inputs(master_seed, spec, i), control)
+        record = _run_record(ctx, replay_inputs(master_seed, spec, i), control, actuator=actuator)
         if sink_path is not None:
             append_record(sink_path, record)
         records_by_index[i] = record

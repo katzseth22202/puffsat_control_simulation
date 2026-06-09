@@ -154,3 +154,46 @@ plugs in** — the entire fine-aim region (drag onset ~800 km → interception 2
 it. The regime-switch *architecture* is therefore forward-compatible with 5 cm; only the
 terminal *integrator* changes (adaptive 30 s → fixed-step ~100 Hz), and that change is already
 on the roadmap (B3 builds it; the cm-trim fine stage is the deferred §13 / ADR 0004 item).
+
+## Implementation notes — B1 (2026-06-09): finite-burn execution + the erosion finding
+
+B1 lands decision 1 (impulsive corrector + finite execution layer). The A1 corrector is
+**unchanged** — it still solves an impulsive Δv; a new layer fires that Δv as a finite Orekit
+`ConstantThrustManeuver` at the apogee node, and the residual interception miss is the
+measured `predict ≠ execute` erosion. The pure burn kinematics (Tsiolkovsky) live in
+`puffsat_sim/actuator.py` (`Actuator` / `FiniteBurn` / `plan_burn`, unit-tested without a JVM);
+the maneuver construction and the finite-execute path live in `montecarlo.py`.
+
+**The mass convention (the one design fork, settled with the user).** The propagator runs at a
+fictitious **1 kg** so the lumped `Cd·(A/m)` / `Cr·(A/m)` scale drag/SRP directly — but a burn's
+`a = F/m` and Tsiolkovsky depletion want the real **~25 kg**. Two paths were on the table:
+(A) keep the 1 kg propagator and scale the thrust to it (`F_eff = F·m_p/m_wet ≈ 16 mN`), so the
+*acceleration* and therefore the burn duration are physically exact, with real propellant
+computed by Tsiolkovsky in the pure module; (B) carry the real 25 kg and rescale the drag/SRP
+cross-sections by mass. We took **A**: it leaves `build.py` and the byte-identical open-loop
+capstone untouched, and — because the executed burn is constant-mass (a sentinel Isp makes the
+in-propagation depletion ~0) — the trajectory is **Isp-free**, exactly the ADR 0004 decision-2
+shape (Δv computed once, propellant swept across Isp at B2). Option B's only added fidelity is
+in-propagation mass-depletion *coupled to drag*, which is negligible at B1's ~0.2 % propellant
+fraction and is precisely what **B3**'s large drag-coupled descent burn needs — so it is deferred
+there, mirroring B0's deferral of the fixed-step terminal to its real consumer.
+
+**The finding — the erosion is real, along-track, and compensable.** Seed 20260608 run 0
+(commanded Δv ≈ 2.17 m/s → a ~136 s burn) lands the finite-executed crossing **~89 m** off the
+impulsive null, **88.8 m of it along-track** (the dr_p/dv_a lever), with the ToA shifting
+~0.18 s. The cause is geometric, not numerical: the burn cannot be *centered* on the apogee node
+(deployment is at apogee = the propagation start, so the burn fires forward), so its impulse
+centroid lands ~68 s late, and the dr_p/dv_a lever amplifies that small phasing offset. It is far
+above the 0.7 m impulsive residual (a genuine effect, not solver noise) yet small against the
+km-scale open-loop dispersion — so at the current km aim the actuator-realism erosion is
+negligible and **B1's question ("can the actuator deliver the correction?") is answered yes**.
+But it scales with Δv (longer burn → larger offset) and is ~1780× the eventual 5 cm aim, so it is
+the concrete trigger for the deferred **finite-burn-aware targeter** (which would simply shift the
+burn so its impulse-equivalent centers on the node, nulling most of the along-track erosion). The
+propellant ledger for that correction is 0.44 % / 0.32 % / 0.11 % of 25 kg at Isp ∈ {50, 70, 200} s.
+
+**Why the existing record sufficed.** With the corrector nulling its *impulsive* prediction onto
+the nominal aim, the `miss_rtn_m` of a *finite*-executed run **is** the erosion by construction —
+so B1 added no `RunRecord` / sink field, and the propellant ledger is the pure `plan_burn`
+transform over the already-recorded `total_dv_m_s` (B2 sweeps it). Slew (~1 °/s) stays unmodelled:
+a single fixed-direction apogee burn needs no slew; it binds only at B3's turning anti-drag burn.

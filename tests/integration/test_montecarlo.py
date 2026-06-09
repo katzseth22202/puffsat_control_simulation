@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from puffsat_sim.actuator import Actuator
 from puffsat_sim.control import solve_apogee_correction
 from puffsat_sim.dispersion import DispersionSpec
 from puffsat_sim.sink import read_records, record_to_dict
@@ -107,6 +108,39 @@ def test_resume_reuses_sink_records_and_runs_only_the_complement(tmp_path: Path)
     assert result.records[0].perigee_alt_m == -12345.0  # reused, not recomputed
     assert result.records[1].perigee_alt_m > 0.0  # index 1 actually propagated
     assert {r.inputs.run_index for r in read_records(sink)} == {0, 1}
+
+
+def test_finite_burn_reproduces_the_impulsive_null_within_a_small_erosion() -> None:
+    """B1 tracer (§13 / ADR 0008): executing the A1 corrector's Δv as a finite apogee burn
+    lands the interception within a small, measured erosion of the impulsive null.
+
+    The corrector nulls its *impulsive* prediction onto the nominal aim, so the residual
+    miss of the *finite*-executed run is precisely the predict≠execute erosion.  At apogee
+    (a 2.7-day orbit, a ~tens-of-seconds burn) it is expected small; this records it, not
+    asserts it away.
+    """
+    spec = DispersionSpec()
+    seed = 20260608
+    impulsive = run_ensemble(spec, n=1, master_seed=seed, control=solve_apogee_correction)
+    finite = run_ensemble(
+        spec,
+        n=1,
+        master_seed=seed,
+        control=solve_apogee_correction,
+        actuator=Actuator(isp_s=50.0),
+    )
+
+    assert impulsive.records[0].converged and finite.records[0].converged
+    # Same commanded plan either way (predict is impulsive in both); only execution differs.
+    assert finite.records[0].total_dv_m_s == pytest.approx(impulsive.records[0].total_dv_m_s)
+    impulsive_miss = _miss_magnitude(impulsive.records[0].miss_rtn_m)
+    finite_miss = _miss_magnitude(finite.records[0].miss_rtn_m)
+    assert impulsive_miss < 2.0  # corrector nulls the impulsive prediction
+    # Finite execution erodes the null by a real, bounded amount (this run: ~89 m, almost
+    # all along-track — the burn centroid lands ~68 s past the apogee node).  Small vs the
+    # km-scale open-loop dispersion, far above the 0.7 m impulsive residual: a measured
+    # finding, not noise (ADR 0008 — a finite-aware targeter that centers the burn is deferred).
+    assert impulsive_miss < finite_miss < 200.0
 
 
 def test_closed_loop_beats_open_loop_for_the_same_run() -> None:
