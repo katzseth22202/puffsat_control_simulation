@@ -48,9 +48,11 @@ def build_propagator(
     The propagator is initialised at orbital_config.epoch with mean anomaly
     orbital_config.mean_anomaly_at_epoch_rad (default π = apogee).
 
-    max_step_s caps the adaptive integrator step; the Monte Carlo harness lowers it
-    so the terminal descent to the 200 km event cannot overshoot below the surface
-    on a smooth low-drag arc (the §6.2 fragility, pending regime-switching).
+    max_step_s caps the adaptive integrator step. The Monte Carlo harness regime-switches
+    the descent (B0, ADR 0008): a 600 s coast hands off at 800 km to a 30 s terminal phase,
+    so no integration stage oversteps the 200 km event below the surface (the §6.2
+    fragility). A fixed-step terminal phase is deferred to B3, where the continuous burn
+    needs the deterministic control-clock cadence.
 
     orbital_config.epoch must be a whole-second UTC datetime.
     """

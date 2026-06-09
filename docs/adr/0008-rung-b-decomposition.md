@@ -79,3 +79,78 @@ against the <2%-of-25 kg line.
   share it so the interception miss stays common-mode (as the 30 s cap did).
 - Dead-time, MIB / cluster geometry, cosine losses, the coarse/fine chemical+cold-gas
   split, and the cm-aim 100 Hz trim remain deferred (ADR 0004).
+
+## Implementation notes — B0 (2026-06-09): regime-switch hand-off, confirmed by a closed-loop falsification
+
+Decision 3 said "do the §6.2 regime-switch once" and rejected "interim cap-loosen." We
+measured B0 before building it (the A2/A3 discipline). The experiment came in two acts; both
+are recorded here because the first nearly led us to the wrong design.
+
+**Act 1 — the open-loop probe argued for a simple cap-loosen.** A probe swept the single
+global adaptive step-cap and an altitude hand-off across the dispersion, **including the
+joint low-drag tail** (cd, F10.7, Ap each at −4σ of the §13 log-normals — where the adaptive
+step near 200 km stays largest and the sub-surface-overshoot risk peaks; the earlier profile
+only saw the *high*-drag corner, which self-limits):
+
+- The tax is in the **coast**, not the terminal phase: the interim 30 s cap throttles the
+  long apogee→800 km coast (which wants ≥300 s steps); the terminal leg is already step-
+  limited by drag.
+- **No-cap is unsafe.** A 600 s (un-capped) descent is bit-identical at nominal but throws
+  `OrekitException: point is inside ellipsoid` at −2σ and below — the integrator oversteps
+  the 200 km event below the surface where the atmosphere model is undefined.
+- A **global 300 s cap** was bit-identical (dP 0.000 m), ~2.5× faster, safe with ~2× margin
+  to the measured sub-surface cliff (~575–600 s on the −4σ corner), and *faster than* the
+  hand-off (whose small-step terminal + second propagator setup costs more **open-loop**).
+
+On open-loop evidence alone the cap-loosen looked best and the hand-off looked dominated.
+**That conclusion was wrong, and the open-loop probe could not see why.**
+
+**Act 2 — the full integration suite falsified the cap-loosen.** With the 300 s cap the two
+**closed-loop** corrector tests failed with the same `point is inside ellipsoid` blow-up
+(garbage state `a = −1.16e8 m, e = 0.73`). Cause: the corrector probes *large re-phasing Δv*
+(e.g. the rejected ~88 m/s root on an uncorrectable tail run), and those probe orbits have
+wildly varying perigee; their terminal descent oversteps at 300 s where the 30 s cap kept
+every integration stage above ground. The open-loop capstone never drives the corrector, so
+it never saw this. **A single global cap cannot be both fast in the long coast and safe in
+the stiff terminal phase for the orbits the corrector explores** — which is precisely the
+§6.2 prediction that "a single pure-adaptive scheme chokes on terminal discontinuities."
+
+**Resolution — the regime-switch hand-off (decision 3 vindicated, with one refinement).**
+B0 ships the §6.2 hand-off: coast on the big adaptive step (600 s) → **800 km** altitude
+event → terminal phase on a tight cap (30 s). The terminal cap equals the old global 30 s
+cap, so it is *provably* as safe as the prior code (identical terminal behaviour) for every
+orbit, corrector probes included; the coast runs at 600 s, recovering the tax. Verified:
+the closed-loop tests pass, the open-loop capstone is byte-identical (common-mode preserved)
+and faster (N=50: 4m18s → 3m20s wall, CPU 2m48s → 0m47s). **Refinement vs decision 3:** the
+terminal phase here stays *adaptive* (a capped DP853), not fixed-step Cowell. A fixed-step
+terminal is deferred to **B3**, where the continuous anti-drag burn — needing a deterministic
+cadence aligned to the control clock — is its first consumer. So B0 builds the coast/terminal
+*seam* (the §6.2 architecture) and B3 swaps the terminal integrator at it.
+
+**Lesson recorded:** measure the *closed-loop* path, not just the open-loop capstone, before
+settling a propagation-architecture decision — the corrector's Δv probing is a stressor the
+dispersion alone does not reproduce.
+
+### Forward-compatibility with the 5 cm terminal aim (cm-trim, deferred)
+
+The eventual goal is to center on the pusher plate to ~5 cm, not the current ~2 m / km-scale
+miss. Does that reopen B0? **Mostly no, and the coast never.** Split the two senses of
+"precision":
+
+- **Numerical accuracy** is *already* ~mm end-to-end (relTol 1e-10), coast and terminal alike
+  — the step-cap only ever forces steps *smaller* than the controller wants, never larger
+  (bit-identical results confirm it). 5 cm is far inside current numerical accuracy
+  everywhere, so accuracy alone reopens nothing.
+- **Control cadence** is the real driver of the 5 cm aim, and it lives **below 800 km**: the
+  100 Hz fine-trim loop (cold-gas/electric, §13 / ADR 0004) and the fixed-step deterministic
+  stepping (§6.2) that lands integration nodes on the control clock. That is exactly the
+  fixed-step Cowell terminal phase deferred to B3/C/D, and the terminal step there shrinks
+  from 30 s toward the ~10 ms control period (or dense-output sampling off the integrator).
+
+So the user's reasoning is sound: the extra precision is a terminal-phase concern; the coast
+above 800 km only needs to deliver the right *ballpark* for the terminal aim and needs no
+revisit. The **800 km hand-off boundary we built is the seam where the cm-trim machinery
+plugs in** — the entire fine-aim region (drag onset ~800 km → interception 200 km) sits below
+it. The regime-switch *architecture* is therefore forward-compatible with 5 cm; only the
+terminal *integrator* changes (adaptive 30 s → fixed-step ~100 Hz), and that change is already
+on the roadmap (B3 builds it; the cm-trim fine stage is the deferred §13 / ADR 0004 item).

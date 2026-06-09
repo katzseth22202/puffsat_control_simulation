@@ -59,10 +59,19 @@ from puffsat_sim.records import EnsembleResult, RunRecord
 from puffsat_sim.sink import append_record, plan_resume, read_records
 from puffsat_sim.sweep import SweepResult, SweepSpec, grid_inputs
 
-# Caps the adaptive integrator step on the terminal descent so a smooth low-drag arc
-# cannot overstep the 200 km altitude event below the surface ("point is inside
-# ellipsoid").  Interim fix for the §6.2 fragility, pending regime-switched
-# propagation; nominal and perturbed runs share it so the miss stays common-mode.
+# Regime-switched descent (B0, ADR 0008 / design §6.2): the adaptive integrator oversteps
+# the 200 km event below the surface ("point is inside ellipsoid") whenever drag is too
+# weak to force a small step there — the low-drag dispersion tail AND, decisively, the
+# orbits the corrector probes (large re-phasing Δv → wildly varying perigee). A single
+# global cap cannot be both fast in the long coast and safe in the stiff terminal phase,
+# so hand off at an altitude event: coast on the big adaptive step, then descend the last
+# leg on a tight cap.  The terminal cap matches the old 30 s global cap (proven safe),
+# while the coast runs at 600 s — recovering the coast tax.  Nominal and perturbed runs
+# share this path so the interception miss stays common-mode.  A *fixed-step* Cowell
+# terminal phase is deferred to B3, where the continuous burn is its first consumer; the
+# terminal phase here stays adaptive.
+_COAST_MAX_STEP_S: float = 600.0
+_HANDOFF_ALT_M: float = 800_000.0  # §6.3 drag-on guard band
 _TERMINAL_MAX_STEP_S: float = 30.0
 
 
@@ -127,6 +136,26 @@ def _propagate_to_interception(propagator: Any, epoch: Any, period: float, earth
     )
 
 
+def _coast_to_handoff(coast_prop: Any, epoch: Any, period: float, earth: Any) -> Any:
+    """Run the smooth coast on the big adaptive step, stopping at the 800 km hand-off (§6.2)."""
+    coast_prop.addEventDetector(
+        AltitudeDetector(_HANDOFF_ALT_M, earth).withHandler(
+            StopOnDecreasing()  # type: ignore[no-untyped-call]
+        )
+    )
+    return coast_prop.propagate(epoch.shiftedBy(period))
+
+
+def _descend(
+    orbit: Any, physics: PhysicsConfig, epoch: Any, period: float, earth: Any
+) -> _Crossing:
+    """Regime-switched descent to the 200 km crossing: coast (600 s) → 800 km → terminal (30 s)."""
+    coast = build_propagator_from_orbit(orbit, physics, _COAST_MAX_STEP_S)
+    handoff_state = _coast_to_handoff(coast, epoch, period, earth)
+    terminal = build_propagator_from_orbit(handoff_state.getOrbit(), physics, _TERMINAL_MAX_STEP_S)
+    return _propagate_to_interception(terminal, epoch, period, earth)
+
+
 def _apogee_state(orbital_config: OrbitalConfig) -> tuple[Any, Any, Any]:
     """Nominal deployment state at apogee (epoch, mean anomaly π): (date, position, velocity)."""
     state = build_propagator(orbital_config, presets.two_body()).getInitialState()
@@ -180,8 +209,7 @@ def _run_record(
         orbit = CartesianOrbit(
             TimeStampedPVCoordinates(ctx.apo_date, ctx.apo_pos, vel), ctx.frame, ctx.mu
         )
-        prop = build_propagator_from_orbit(orbit, physics, _TERMINAL_MAX_STEP_S)
-        return _propagate_to_interception(prop, ctx.epoch, ctx.period, ctx.earth)
+        return _descend(orbit, physics, ctx.epoch, ctx.period, ctx.earth)
 
     if control is None:
         plan = ControlPlan(actions=(), converged=True, iterations=0)
@@ -229,8 +257,12 @@ def _build_context(orbital_config: OrbitalConfig) -> _RunContext:
 
     # Nominal (unperturbed) crossing — the reference the miss is measured against and
     # the corrector's target.
-    nominal_prop = build_propagator(orbital_config, presets.full_force(), _TERMINAL_MAX_STEP_S)
-    nominal = _propagate_to_interception(nominal_prop, epoch, period, earth)
+    nominal_orbit = (
+        build_propagator(orbital_config, presets.full_force(), _COAST_MAX_STEP_S)
+        .getInitialState()
+        .getOrbit()
+    )
+    nominal = _descend(nominal_orbit, presets.full_force(), epoch, period, earth)
     nominal_basis: Basis = rtn_basis(nominal.position_m, nominal.velocity_m_s)
 
     apo_date, apo_pos, apo_vel = _apogee_state(orbital_config)
