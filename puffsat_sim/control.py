@@ -80,6 +80,21 @@ class ControlPlan:
 Controller = Callable[[PredictFn, Target], ControlPlan]
 
 
+def passes_toa_gate(converged: bool, toa_miss_s: float, toa_window_s: float | None) -> bool:
+    """Whether a converged plan is the intended local root, not the spurious far one (ADR 0007).
+
+    With the step cap raised to budget scale (A3 decision 3ii), Newton can re-converge on a
+    far, high-Δv orbit that re-crosses 200 km a revolution off-nominal.  ToA — not Δv
+    magnitude — is the physical discriminator: a converged solution whose crossing falls
+    outside ±``toa_window_s`` of the nominal time of arrival is rejected as "no valid local
+    solution".  ``toa_window_s=None`` disables the gate (A1/A2/the capstone keep their
+    verdict); a non-converged plan is never rescued.
+    """
+    if toa_window_s is None or not converged:
+        return converged
+    return abs(toa_miss_s) <= toa_window_s
+
+
 def _vec3_of(a: NDArray[np.float64]) -> Vec3:
     return (float(a[0]), float(a[1]), float(a[2]))
 

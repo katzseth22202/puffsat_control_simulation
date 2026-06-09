@@ -34,7 +34,7 @@ from org.hipparchus.geometry.euclidean.threed import Vector3D
 from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import EARTH_RADIUS_M
-from puffsat_sim.control import ControlPlan, Controller, Target
+from puffsat_sim.control import ControlPlan, Controller, Target, passes_toa_gate
 from puffsat_sim.dispersion import (
     Basis,
     DispersionSpec,
@@ -151,13 +151,22 @@ class _RunContext:
     target: Target
 
 
-def _run_record(ctx: _RunContext, inputs: RunInputs, control: Controller | None) -> RunRecord:
+def _run_record(
+    ctx: _RunContext,
+    inputs: RunInputs,
+    control: Controller | None,
+    toa_window_s: float | None = None,
+) -> RunRecord:
     """Propagate one run: apply injection, solve+execute the control plan, record the miss.
 
     ``predict`` (the corrector's onboard model) and ``execute`` (truth) are the same
     full-force physics at Rung A (ADR 0003), so a converged plan lands the recorded
     crossing on the nominal aim to machine precision.  The injection Δv is baked into
     the closure, so the corrector solves for the *correction* alone, starting from zero.
+
+    ``toa_window_s`` (default off) is the A3 spurious-far-root gate: a converged plan whose
+    crossing falls outside ±window of the nominal ToA is recorded non-converged (ADR 0007
+    decision 3iii).  ``run_ensemble`` / the capstone leave it ``None``.
     """
     physics = physics_from_inputs(inputs)
     injection_dv_eme = rtn_to_cartesian(inputs.dv_rtn_m_s, ctx.apo_basis)
@@ -189,16 +198,17 @@ def _run_record(ctx: _RunContext, inputs: RunInputs, control: Controller | None)
         crossing.position_m[1] - ctx.nominal.position_m[1],
         crossing.position_m[2] - ctx.nominal.position_m[2],
     )
+    toa_miss_s = crossing.toa_s - ctx.nominal.toa_s
     return RunRecord(
         inputs=inputs,
         miss_rtn_m=rtn_components(miss_vec, ctx.nominal_basis),
-        toa_miss_s=crossing.toa_s - ctx.nominal.toa_s,
+        toa_miss_s=toa_miss_s,
         perigee_alt_m=crossing.perigee_alt_m,
         crossing_position_m=crossing.position_m,
         crossing_velocity_m_s=crossing.velocity_m_s,
         control_log=plan.actions,
         total_dv_m_s=plan.total_dv_m_s,
-        converged=plan.converged,
+        converged=passes_toa_gate(plan.converged, toa_miss_s, toa_window_s),
         iterations=plan.iterations,
     )
 

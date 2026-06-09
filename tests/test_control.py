@@ -11,6 +11,7 @@ from puffsat_sim.control import (
     TwoBurnPredictFn,
     Vec3,
     Vec6,
+    passes_toa_gate,
     solve_apogee_correction,
     solve_two_burn_correction,
 )
@@ -263,6 +264,28 @@ class TestLMDamping:
         assert lm.converged
         got = np.asarray(predict(lm.actions[0].dv_rtn_m_s))
         assert float(np.linalg.norm(got - target)) < 1.0
+
+
+class TestToaGate:
+    def test_gate_off_passes_through_the_verdict(self) -> None:
+        # window=None disables the gate — A1/A2/the capstone are untouched.
+        assert passes_toa_gate(converged=True, toa_miss_s=1.0e6, toa_window_s=None) is True
+        assert passes_toa_gate(converged=False, toa_miss_s=0.0, toa_window_s=None) is False
+
+    def test_in_window_solution_passes(self) -> None:
+        assert passes_toa_gate(converged=True, toa_miss_s=120.0, toa_window_s=300.0) is True
+        assert passes_toa_gate(converged=True, toa_miss_s=-120.0, toa_window_s=300.0) is True
+
+    def test_out_of_window_solution_is_rejected_as_the_far_root(self) -> None:
+        # A converged plan whose 200 km crossing is a revolution off-nominal is the
+        # spurious far-ToA root (ADR 0007 decision 3iii) → recorded non-converged.
+        assert passes_toa_gate(converged=True, toa_miss_s=50_000.0, toa_window_s=300.0) is False
+
+    def test_boundary_is_inclusive(self) -> None:
+        assert passes_toa_gate(converged=True, toa_miss_s=300.0, toa_window_s=300.0) is True
+
+    def test_gate_never_rescues_a_non_converged_plan(self) -> None:
+        assert passes_toa_gate(converged=False, toa_miss_s=0.0, toa_window_s=300.0) is False
 
 
 class TestControlPlan:
