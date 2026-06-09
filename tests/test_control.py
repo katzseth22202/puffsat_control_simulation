@@ -244,6 +244,27 @@ class TestTwoBurnAuthorityBoundary:
         assert stacked_norm <= 2.0 * 2 + 1e-9  # ≤ max_iter × cap
 
 
+class TestLMDamping:
+    def test_lm_converges_where_plain_newton_hits_a_singular_jacobian(self) -> None:
+        # Genuinely singular lever (normal axis carries no authority — its column is
+        # zero) but a target reachable *in the in-plane column space* (zero normal
+        # component): plain Newton's square solve raises on the singular Jacobian
+        # (→ recorded non-convergence); LM's (JᵀJ + λI) regularizes the null direction
+        # and reaches the reachable subspace. Contrast TestAuthorityBoundary, where the
+        # same singular lever meets an *un*reachable target and neither path converges.
+        singular = np.array([[3.0e4, 0.0, 0.0], [0.0, 2.6e4, 0.0], [0.0, 0.0, 0.0]])
+        target = np.array([3.0e3, 2.6e3, 0.0])  # = lever @ (0.1, 0.1, *): reachable
+        predict = _linear_predict(singular, np.zeros(3))
+
+        newton = solve_apogee_correction(predict, Target(tuple(target)))
+        assert not newton.converged  # singular Jacobian → recorded non-convergence
+
+        lm = solve_apogee_correction(predict, Target(tuple(target)), lm=True)
+        assert lm.converged
+        got = np.asarray(predict(lm.actions[0].dv_rtn_m_s))
+        assert float(np.linalg.norm(got - target)) < 1.0
+
+
 class TestControlPlan:
     def test_total_dv_sums_action_magnitudes(self) -> None:
         plan = ControlPlan(

@@ -101,6 +101,29 @@ def _finite_difference_jacobian(
     return jac
 
 
+def _newton_step(jac: NDArray[np.float64], residual: NDArray[np.float64]) -> NDArray[np.float64]:
+    """A1's committed square Newton step; raises ``LinAlgError`` on a singular Jacobian."""
+    return np.asarray(np.linalg.solve(jac, residual), dtype=np.float64)
+
+
+def _lm_step(
+    jac: NDArray[np.float64], residual: NDArray[np.float64], lm_lambda: float
+) -> NDArray[np.float64]:
+    """Levenberg-Marquardt step: solve ``(JᵀJ + λI) δ = Jᵀr`` (ADR 0007 decision 3i).
+
+    ``λ`` is scaled to the Jacobian (``lm_lambda × max diag(JᵀJ)``) so the damping is
+    scale-invariant.  Near the along-track wall the Jacobian goes near-singular and the
+    plain Newton step diverges; the ``λI`` term regularizes the near-null direction so
+    required-Δv grows *smoothly* toward the authority boundary instead of blowing up.
+    ``JᵀJ + λI`` is SPD for any ``λ>0``, so this never raises unless the Jacobian is
+    exactly zero (no authority at all), which the caller records as non-convergence.
+    """
+    jtj = jac.T @ jac
+    damping = lm_lambda * float(np.max(np.diag(jtj)))
+    step = np.linalg.solve(jtj + damping * np.eye(3), jac.T @ residual)
+    return np.asarray(step, dtype=np.float64)
+
+
 def solve_apogee_correction(
     predict: PredictFn,
     target: Target,
@@ -109,6 +132,8 @@ def solve_apogee_correction(
     max_iter: int = 8,
     fd_step_m_s: float = 1.0e-3,
     max_step_m_s: float = 2.0,
+    lm: bool = False,
+    lm_lambda: float = 1.0e-3,
 ) -> ControlPlan:
     """Solve for the apogee correction Δv (RTN) nulling the interception miss.
 
@@ -124,6 +149,11 @@ def solve_apogee_correction(
     much later — a spurious root the cap keeps Newton from wandering into.  A run that
     genuinely needs more than the cap is past the authority boundary and reads as
     non-converged, which is the honest A3 outcome.
+
+    ``lm`` switches the square Newton step for a Levenberg-Marquardt damped step
+    (default off, so A1/A2/the capstone keep their committed Newton path).  A3's
+    controllability sweep turns it on to walk the near-singular along-track wall
+    smoothly toward the boundary rather than diverging on it (ADR 0007 decision 3).
     """
     target_pos = np.asarray(target.position_m, dtype=np.float64)
     x = np.zeros(3, dtype=np.float64)
@@ -141,7 +171,7 @@ def solve_apogee_correction(
 
         jac = _finite_difference_jacobian(predict, x, base_pos, fd_step_m_s)
         try:
-            step = np.linalg.solve(jac, residual)
+            step = _lm_step(jac, residual, lm_lambda) if lm else _newton_step(jac, residual)
         except np.linalg.LinAlgError:
             break  # singular geometry → out of authority, recorded as non-converged
 
