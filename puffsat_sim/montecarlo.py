@@ -57,6 +57,7 @@ from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
 from puffsat_sim.records import EnsembleResult, RunRecord
 from puffsat_sim.sink import append_record, plan_resume, read_records
+from puffsat_sim.sweep import SweepResult, SweepSpec, grid_inputs
 
 # Caps the adaptive integrator step on the terminal descent so a smooth low-drag arc
 # cannot overstep the 200 km altitude event below the surface ("point is inside
@@ -213,6 +214,44 @@ def _run_record(
     )
 
 
+def _build_context(orbital_config: OrbitalConfig) -> _RunContext:
+    """Build the per-run constants shared by every run (the nominal crossing + apogee frame).
+
+    Factored out of ``run_ensemble`` so the deterministic ``run_sweep`` reuses the exact same
+    nominal-crossing setup and ``_RunContext`` (ADR 0007 decision 5).
+    """
+    earth = _earth()
+    epoch = _to_absolute_date(orbital_config.epoch)
+    semi_major, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(semi_major)
+    frame = FramesFactory.getEME2000()
+    mu: float = Constants.WGS84_EARTH_MU
+
+    # Nominal (unperturbed) crossing — the reference the miss is measured against and
+    # the corrector's target.
+    nominal_prop = build_propagator(orbital_config, presets.full_force(), _TERMINAL_MAX_STEP_S)
+    nominal = _propagate_to_interception(nominal_prop, epoch, period, earth)
+    nominal_basis: Basis = rtn_basis(nominal.position_m, nominal.velocity_m_s)
+
+    apo_date, apo_pos, apo_vel = _apogee_state(orbital_config)
+    apo_basis: Basis = rtn_basis(_vec3(apo_pos), _vec3(apo_vel))
+
+    return _RunContext(
+        apo_date=apo_date,
+        apo_pos=apo_pos,
+        apo_vel=apo_vel,
+        apo_basis=apo_basis,
+        frame=frame,
+        mu=mu,
+        epoch=epoch,
+        period=period,
+        earth=earth,
+        nominal=nominal,
+        nominal_basis=nominal_basis,
+        target=Target(nominal.position_m),
+    )
+
+
 def run_ensemble(
     spec: DispersionSpec,
     n: int,
@@ -232,36 +271,7 @@ def run_ensemble(
     (the present ones must match this ``master_seed``/``spec``).  The caller must resume
     with the same ``control`` — inputs are control-independent, so it is not auto-checked.
     """
-    earth = _earth()
-    epoch = _to_absolute_date(orbital_config.epoch)
-    semi_major, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
-    period = keplerian_period(semi_major)
-    frame = FramesFactory.getEME2000()
-    mu: float = Constants.WGS84_EARTH_MU
-
-    # Nominal (unperturbed) crossing — the reference the miss is measured against and
-    # the corrector's target.
-    nominal_prop = build_propagator(orbital_config, presets.full_force(), _TERMINAL_MAX_STEP_S)
-    nominal = _propagate_to_interception(nominal_prop, epoch, period, earth)
-    nominal_basis: Basis = rtn_basis(nominal.position_m, nominal.velocity_m_s)
-
-    apo_date, apo_pos, apo_vel = _apogee_state(orbital_config)
-    apo_basis: Basis = rtn_basis(_vec3(apo_pos), _vec3(apo_vel))
-
-    ctx = _RunContext(
-        apo_date=apo_date,
-        apo_pos=apo_pos,
-        apo_vel=apo_vel,
-        apo_basis=apo_basis,
-        frame=frame,
-        mu=mu,
-        epoch=epoch,
-        period=period,
-        earth=earth,
-        nominal=nominal,
-        nominal_basis=nominal_basis,
-        target=Target(nominal.position_m),
-    )
+    ctx = _build_context(orbital_config)
 
     reuse: dict[int, RunRecord] = {}
     todo = list(range(n))
@@ -284,11 +294,44 @@ def run_ensemble(
     )
     return EnsembleResult(
         master_seed=master_seed,
-        nominal_perigee_alt_m=nominal.perigee_alt_m,
-        nominal_toa_s=nominal.toa_s,
+        nominal_perigee_alt_m=ctx.nominal.perigee_alt_m,
+        nominal_toa_s=ctx.nominal.toa_s,
         records=tuple(records),
         stats=stats,
     )
+
+
+def run_sweep(
+    spec: SweepSpec,
+    control: Controller,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    toa_window_s: float | None = None,
+) -> SweepResult:
+    """Run the deterministic A3 controllability grid against a fixed targeter (ADR 0007).
+
+    Same physics path as :func:`run_ensemble` (shared :func:`_build_context` /
+    :func:`_run_record` / nominal crossing), but the inputs are the deterministic
+    :func:`~puffsat_sim.sweep.grid_inputs` (zero injection, swept Cd/Cr) rather than
+    stochastic draws, and ``control`` is required — A3 maps the *required Δv*, so there is no
+    open-loop variant.  ``toa_window_s`` arms the spurious-far-root gate (decision 3iii); the
+    caller sizes it off the capstone's open-loop ToA dispersion.
+
+    ``SweepResult.nominal`` is a dedicated factor-(1,1) reference run (zero coefficient error,
+    zero injection) so the perigee/ToA overlays have a baseline even when the grid does not
+    land a point exactly on nominal.
+    """
+    ctx = _build_context(orbital_config)
+    records = tuple(_run_record(ctx, inputs, control, toa_window_s) for inputs in grid_inputs(spec))
+    nominal_inputs = RunInputs(
+        run_index=-1,
+        dv_rtn_m_s=(0.0, 0.0, 0.0),
+        cd_area_over_mass=spec.cd_area_over_mass,
+        cr_area_over_mass=spec.cr_area_over_mass,
+        f10p7=spec.f10p7,
+        ap=spec.ap,
+    )
+    nominal_record = _run_record(ctx, nominal_inputs, control, toa_window_s)
+    return SweepResult(spec=spec, records=records, nominal=nominal_record)
 
 
 def format_summary(result: EnsembleResult) -> str:

@@ -148,7 +148,7 @@ def solve_apogee_correction(
     fd_step_m_s: float = 1.0e-3,
     max_step_m_s: float = 2.0,
     lm: bool = False,
-    lm_lambda: float = 1.0e-3,
+    lm_lambda: float = 1.0e-6,
 ) -> ControlPlan:
     """Solve for the apogee correction Δv (RTN) nulling the interception miss.
 
@@ -167,8 +167,12 @@ def solve_apogee_correction(
 
     ``lm`` switches the square Newton step for a Levenberg-Marquardt damped step
     (default off, so A1/A2/the capstone keep their committed Newton path).  A3's
-    controllability sweep turns it on to walk the near-singular along-track wall
-    smoothly toward the boundary rather than diverging on it (ADR 0007 decision 3).
+    controllability sweep turns it on (ADR 0007 decision 3): the 200 km target is an
+    *altitude event*, so the radial/altitude component of the crossing is pinned and that
+    Jacobian direction is near-singular (cond ~1e7).  ``λI`` regularizes it so the corrector
+    nulls the well-conditioned in-plane/normal miss cheaply instead of spending Δv fighting
+    the pinned direction as the plain square solve does.  The ``1e-6`` default is tuned to
+    that conditioning (it regularizes only the genuinely singular direction).
     """
     target_pos = np.asarray(target.position_m, dtype=np.float64)
     x = np.zeros(3, dtype=np.float64)
