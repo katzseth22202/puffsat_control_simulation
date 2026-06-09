@@ -223,3 +223,23 @@ on the fast eccentric pass is ~24× / ~250× below it. **Both gates pass with en
 <2% claim holds a fortiori — even on the conservative coefficient, so no ADR 0009 grounding is
 triggered.** A no-`RunRecord`-change measurement, like the B1 erosion: the profile is reported, not
 stored. The cross-check confirms the paper's feasibility floor with ~20× headroom.
+
+## Implementation notes — B2 (2026-06-09): the "anti-drag dominates / 50 s fails ~3×" expectation, falsified
+
+The Consequences section predicted B2 would be "dominated by the terminal anti-drag Δv, not the
+corrections ... expect the 50 s Isp anchor to fail it ~3×." **Both halves are wrong, measured.**
+B3a found the anti-drag Δv is **0.015 m/s** (0.006 % of 25 kg at 50 s — negligible, not dominant),
+and A3 found the corrections « budget. So the mission Δv is correction-dominated and small: a
+representative correctable run (correction 2.17 m/s + anti-drag → **2.19 m/s**) costs **0.45 % /
+0.32 % / 0.11 %** at Isp 50 / 70 / 200 — <2 % at every anchor, ~4.5× margin even at 50 s.
+
+The pure ledger (`propellant.propellant_curve`, ADR 0004 linear `Δv/(Isp·g₀)`) is the exact inverse
+of `sweep.budget_dv_m_s`, so the 2 % line at 50 s **is** the 9.8 m/s authority budget; A3's
+"controllable everywhere « budget" therefore means every correctable run is <2 % at 50 s by
+construction. Why the original expectation was wrong: it took the paper's stacked-pessimistic
+anti-drag estimate (374 g, ~3.6 m/s-equivalent) as the physical cost, but B3a's NRLMSISE
+instrumentation showed the real anti-drag is ~250× smaller. The full propellant *distribution* over
+the dispersion is deferred to **Rung D**; B2 is the deterministic ledger it feeds through. (Aside:
+the N=8 sizing ensemble converged 1/8 under the *untuned* A1 plain-Newton corrector — the A3
+LM-tuned corrector is controllable everywhere; that convergence rate is the A1 authority/tuning
+story, not the propellant story.) **Rung B is complete: B0 / B1 / B3a / B2; B3b → C/D.**
