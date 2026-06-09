@@ -44,6 +44,18 @@ tidal ratios, SRP/drag acceleration), living in that force's pure module. Used
 by integration tests (to assert) and by `truth_model`'s reports (to print) —
 it is not a method on the **Perturbation** interface.
 
+**Lumped coefficient** (`Cd·(A/m)`, `Cr·(A/m)`):
+The single scalar that sets each non-conservative force's magnitude — drag and SRP
+acceleration are `½ρv²·Cd·(A/m)` and `P₀(d₀/r)²·Cr·(A/m)`. It folds the drag/reflectivity
+coefficient, cross-sectional area, and 1/mass into one number, so it is the **only**
+drag/SRP lever: the propagator's spacecraft mass (a fictitious 1 kg, ADR 0008) is pure
+normalization, and the UKF estimates these two scalars directly. The defaults (`0.04`,
+`0.02` m²/kg) are deliberate **conservative cannonball placeholders** — a sphere-equivalent,
+attitude-independent; the real ANFO-cylinder, attitude-dependent area is the optimistic
+**Rung E** refinement (ADR 0009). _Avoid_: treating it as area or as ballistic coefficient
+alone (it is `Cd·A/m`, mass folded in); "use the real 25 kg mass" (a no-op — the coefficient,
+not the propagator mass, is the lever).
+
 **DispersionSpec**:
 The swept knobs for one Monte Carlo ensemble — nominal values plus per-input 1σ
 (injection-Δv RTN axes, log-normal `Cd·(A/m)`/`Cr·(A/m)`, F10.7/Ap). Pure value
