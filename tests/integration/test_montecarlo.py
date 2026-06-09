@@ -9,13 +9,14 @@ from pathlib import Path
 import pytest
 
 from puffsat_sim.actuator import Actuator
+from puffsat_sim.anti_drag import PEAK_SLEW_LIMIT_DEG_S, PEAK_THRUST_LIMIT_N
 from puffsat_sim.control import solve_apogee_correction
 from puffsat_sim.dispersion import DispersionSpec
 from puffsat_sim.sink import read_records, record_to_dict
 
 try:
     # Importing montecarlo boots the JVM and loads orekit-data.zip from the cwd.
-    from puffsat_sim.montecarlo import replay_inputs, run_ensemble
+    from puffsat_sim.montecarlo import instrument_anti_drag, replay_inputs, run_ensemble
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 
@@ -141,6 +142,23 @@ def test_finite_burn_reproduces_the_impulsive_null_within_a_small_erosion() -> N
     # km-scale open-loop dispersion, far above the 0.7 m impulsive residual: a measured
     # finding, not noise (ADR 0008 — a finite-aware targeter that centers the burn is deferred).
     assert impulsive_miss < finite_miss < 200.0
+
+
+def test_anti_drag_feedforward_clears_the_actuator_limits_with_margin() -> None:
+    """B3a (§13 / ADR 0009): the known-drag 600→200 km feedforward anti-drag requirement
+    clears the 400 mN / 1°/s actuator limits with large margin under the *conservative*
+    cannonball coefficient — confirming the paper's <2% propellant claim a fortiori.
+
+    Measured (nominal descent): peak thrust ~17 mN (~24× under 400 mN), peak slew ~0.05°/s
+    (~20× under 1°/s), anti-drag Δv ~0.015 m/s. The paper's 374 g / 400 mN is a deliberately
+    stacked-pessimistic upper bound; the physical NRLMSISE requirement is far below it.
+    """
+    profile = instrument_anti_drag()
+
+    assert profile.duration_s > 0.0
+    assert 0.0 < profile.anti_drag_dv_m_s < 0.5  # tiny vs the paper's ~0.7 m/s baseline Δv
+    assert profile.peak_thrust_n < PEAK_THRUST_LIMIT_N  # ~17 mN, well under 400 mN
+    assert profile.peak_slew_rate_deg_s < PEAK_SLEW_LIMIT_DEG_S  # ~0.05°/s, well under 1°/s
 
 
 def test_closed_loop_beats_open_loop_for_the_same_run() -> None:

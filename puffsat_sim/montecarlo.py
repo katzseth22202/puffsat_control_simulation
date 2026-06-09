@@ -35,6 +35,7 @@ from org.hipparchus.geometry.euclidean.threed import Vector3D
 
 from puffsat_sim import mission, presets
 from puffsat_sim.actuator import Actuator, plan_burn
+from puffsat_sim.anti_drag import AntiDragProfile, summarize_anti_drag
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import EARTH_RADIUS_M
 from puffsat_sim.control import ControlPlan, Controller, Target, passes_toa_gate
@@ -56,6 +57,7 @@ from puffsat_sim.forces import (
     SolarRadiation,
     ThirdBody,
 )
+from puffsat_sim.forces.build import Environment, to_force_models
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
 from puffsat_sim.records import EnsembleResult, RunRecord
@@ -200,6 +202,76 @@ def _finite_burn_maneuver(actuator: Actuator, correction_rtn: Vec3, ctx: _RunCon
         FrameAlignedProvider(ctx.frame),
         direction,
     )
+
+
+_INSTRUMENT_BELOW_ALT_M: float = 600_000.0  # §13 B3 window: the anti-drag burn runs 600 → 200 km
+_PUFFSAT_WET_MASS_KG: float = 25.0  # real mass for force/thrust; matches Actuator.wet_mass_kg
+
+
+def _drag_force_model(physics: PhysicsConfig, env: Any) -> Any:
+    """The Orekit DragForce for this run's atmospheric-drag perturbation (to evaluate a_drag)."""
+    for perturbation in physics.perturbations:
+        if isinstance(perturbation, AtmosphericDrag):
+            return to_force_models(perturbation, env)[0]
+    raise ValueError("physics config carries no AtmosphericDrag perturbation")
+
+
+def instrument_anti_drag(
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    mass_kg: float = _PUFFSAT_WET_MASS_KG,
+    sample_dt_s: float = 1.0,
+) -> AntiDragProfile:
+    """Instrument the nominal known-drag descent and reduce it to the anti-drag requirement (B3a).
+
+    Feedforward cost baseline (ADR 0008/0009, perfect knowledge): descend the nominal trajectory,
+    sample the truth drag acceleration through the 600 → 200 km window, and report what an
+    anti-drag burn must deliver (Δv, peak thrust, peak direction-slew) — measured, not executed
+    (the executed/closed-loop burn and the fixed-step terminal phase are deferred to C/D).  Drag
+    is evaluated at the propagator's 1 kg, which yields the real a_drag directly (the lumped
+    Cd·(A/m) is the real coefficient, ADR 0009); peak thrust then scales by the real ``mass_kg``.
+    """
+    physics = presets.full_force()
+    earth = _earth()
+    epoch = _to_absolute_date(orbital_config.epoch)
+    semi_major, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(semi_major)
+
+    apogee_orbit = (
+        build_propagator(orbital_config, physics, _COAST_MAX_STEP_S).getInitialState().getOrbit()
+    )
+    coast = build_propagator_from_orbit(apogee_orbit, physics, _COAST_MAX_STEP_S)
+    handoff_state = _coast_to_handoff(coast, epoch, period, earth)
+
+    terminal = build_propagator_from_orbit(handoff_state.getOrbit(), physics, _TERMINAL_MAX_STEP_S)
+    generator = terminal.getEphemerisGenerator()
+    terminal.addEventDetector(
+        AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(
+            StopOnDecreasing()  # type: ignore[no-untyped-call]
+        )
+    )
+    end_state = terminal.propagate(epoch.shiftedBy(period))
+    ephemeris = generator.getGeneratedEphemeris()
+
+    drag_force = _drag_force_model(physics, Environment.build())
+    params = drag_force.getParameters()
+    start = handoff_state.getDate()
+    span = float(end_state.getDate().durationFrom(start))
+
+    times: list[float] = []
+    accels: list[Vec3] = []
+    steps = int(span / sample_dt_s)
+    for k in range(steps + 1):
+        date = start.shiftedBy(min(float(k) * sample_dt_s, span))
+        state = ephemeris.propagate(date)
+        position = state.getPVCoordinates().getPosition()
+        altitude = float(earth.transform(position, state.getFrame(), date).getAltitude())
+        if altitude > _INSTRUMENT_BELOW_ALT_M:
+            continue
+        accel = drag_force.acceleration(state, params)
+        times.append(float(date.durationFrom(epoch)))
+        accels.append((float(accel.getX()), float(accel.getY()), float(accel.getZ())))
+
+    return summarize_anti_drag(times, accels, mass_kg)
 
 
 def _apogee_state(orbital_config: OrbitalConfig) -> tuple[Any, Any, Any]:

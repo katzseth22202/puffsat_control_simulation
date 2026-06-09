@@ -197,3 +197,29 @@ the nominal aim, the `miss_rtn_m` of a *finite*-executed run **is** the erosion 
 so B1 added no `RunRecord` / sink field, and the propellant ledger is the pure `plan_burn`
 transform over the already-recorded `total_dv_m_s` (B2 sweeps it). Slew (~1 °/s) stays unmodelled:
 a single fixed-direction apogee burn needs no slew; it binds only at B3's turning anti-drag burn.
+
+## Implementation notes — B3a (2026-06-09): split B3, defer the fixed-step terminal, measure the cost
+
+Decision 3 (and the B0 note) assigned the §6.2 fixed-step Cowell terminal phase to B3, "the
+continuous burn being its first consumer." Building B3 surfaced a sharper reading: B3's *headline*
+— anti-drag Δv, peak thrust ≤ 400 mN, peak slew ≤ 1°/s, <2% propellant — is answerable by
+**instrumenting the existing adaptive descent**, with *no executed burn and no fixed-step terminal*.
+So B3 splits, by the same "defer infrastructure until its consumer exists" logic that shaped B0:
+
+- **B3a (measure, done):** a step-handler over the ephemeris of the existing descent samples the
+  truth drag acceleration through 600 → 200 km and reduces it (pure `anti_drag.summarize_anti_drag`)
+  to the requirement. Drag is evaluated at the propagator's 1 kg, which *is* the real a_drag (the
+  lumped `Cd·(A/m)` is the real coefficient, ADR 0009); peak thrust scales by the real 25 kg.
+- **B3b (execute, deferred → C/D):** build the fixed-step Cowell terminal and fly the open-loop
+  feedforward burn end-to-end. Its true first consumer is the *executed / closed-loop* rejection of
+  *uncertain* drag at C/D, so the fixed-step terminal moves there. B3a answers feasibility without it.
+
+**Finding (nominal descent, conservative cannonball `Cd·(A/m)=0.04`):** peak thrust **16.7 mN**
+(~24× under 400 mN), peak slew **0.048 °/s** (~21× under 1 °/s, ≈ the paper's ~0.1 °/s sweep
+estimate), anti-drag Δv **0.015 m/s** → **~1.5 g @ Isp 25 s (0.006 % of 25 kg)**. The paper's
+`sec:estimate_cold_gas` 374 g / 400 mN is a *deliberately stacked-pessimistic* upper bound (×10
+area, ×20 surge, ×2 v², ×2 pulsing on GOCE's solar-min baseline); the physical NRLMSISE requirement
+on the fast eccentric pass is ~24× / ~250× below it. **Both gates pass with enormous margin and the
+<2% claim holds a fortiori — even on the conservative coefficient, so no ADR 0009 grounding is
+triggered.** A no-`RunRecord`-change measurement, like the B1 erosion: the profile is reported, not
+stored. The cross-check confirms the paper's feasibility floor with ~20× headroom.
