@@ -29,6 +29,12 @@ from puffsat_sim.dispersion import Vec3
 # input space and the solved Δv is already RTN (transverse = the dr_p/dv_a lever).
 PredictFn = Callable[[Vec3], Vec3]
 
+# Two-burn correction: the stacked (apogee RTN, mid-descent RTN) Δv → crossing
+# position.  Each 3-vector is in its own node's RTN frame; the closure re-derives the
+# mid-descent basis from the stopped node state (ADR 0005).
+Vec6 = tuple[float, float, float, float, float, float]
+TwoBurnPredictFn = Callable[[Vec6], Vec3]
+
 
 @dataclass(frozen=True)
 class Target:
@@ -76,6 +82,10 @@ Controller = Callable[[PredictFn, Target], ControlPlan]
 
 def _vec3_of(a: NDArray[np.float64]) -> Vec3:
     return (float(a[0]), float(a[1]), float(a[2]))
+
+
+def _vec6_of(a: NDArray[np.float64]) -> Vec6:
+    return (float(a[0]), float(a[1]), float(a[2]), float(a[3]), float(a[4]), float(a[5]))
 
 
 def _finite_difference_jacobian(
@@ -149,3 +159,72 @@ def solve_apogee_correction(
         dv_mag_m_s=float(np.linalg.norm(x)),
     )
     return ControlPlan(actions=(action,), converged=converged, iterations=iterations)
+
+
+def _finite_difference_jacobian_6(
+    predict: TwoBurnPredictFn,
+    x: NDArray[np.float64],
+    base_position: NDArray[np.float64],
+    step: float,
+) -> NDArray[np.float64]:
+    """Forward-difference 3×6 ∂(crossing position)/∂(stacked Δv), reusing ``base_position``."""
+    jac = np.empty((3, 6), dtype=np.float64)
+    for j in range(6):
+        xp = x.copy()
+        xp[j] += step
+        perturbed = np.asarray(predict(_vec6_of(xp)), dtype=np.float64)
+        jac[:, j] = (perturbed - base_position) / step
+    return jac
+
+
+def solve_two_burn_correction(
+    predict: TwoBurnPredictFn,
+    target: Target,
+    *,
+    tol_m: float = 1.0,
+    max_iter: int = 8,
+    fd_step_m_s: float = 1.0e-3,
+    max_step_m_s: float = 2.0,
+) -> ControlPlan:
+    """Solve for the minimum-Δv two-impulse correction nulling the interception miss (ADR 0005).
+
+    Two burns give 6 DOF against the 3 position constraints, so the system is
+    underdetermined; each Gauss-Newton step is the **minimum-norm** least-squares step
+    (``np.linalg.lstsq``), so starting from zero the solver walks the least-Σ‖Δv‖² path.
+    Unlike A1's square ``solve``, ``lstsq`` never raises on a rank-deficient lever — an
+    unreachable target simply leaves the residual above ``tol_m`` after ``max_iter``,
+    which is recorded as ``converged=False`` (the authority boundary), never thrown.
+
+    ``max_step_m_s`` caps the full 6-vector step at the physical correction scale, the
+    same free-ToA spurious-far-root guard as A1.  Returns two ``ControlAction``s
+    ("apogee", "midcourse"); the midcourse ``elapsed_s`` is a placeholder the harness
+    re-stamps with the real 900 km event time (execution is altitude-event-driven).
+    """
+    target_pos = np.asarray(target.position_m, dtype=np.float64)
+    x = np.zeros(6, dtype=np.float64)
+    iterations = 0
+    converged = False
+
+    while True:
+        base_pos = np.asarray(predict(_vec6_of(x)), dtype=np.float64)
+        residual = base_pos - target_pos
+        if float(np.linalg.norm(residual)) < tol_m:
+            converged = True
+            break
+        if iterations >= max_iter:
+            break
+
+        jac = _finite_difference_jacobian_6(predict, x, base_pos, fd_step_m_s)
+        step, *_ = np.linalg.lstsq(jac, residual, rcond=None)
+
+        step_norm = float(np.linalg.norm(step))
+        if step_norm > max_step_m_s:
+            step = step * (max_step_m_s / step_norm)
+        x = x - step
+        iterations += 1
+
+    actions = (
+        ControlAction("apogee", 0.0, _vec3_of(x[:3]), float(np.linalg.norm(x[:3]))),
+        ControlAction("midcourse", 0.0, _vec3_of(x[3:]), float(np.linalg.norm(x[3:]))),
+    )
+    return ControlPlan(actions=actions, converged=converged, iterations=iterations)
