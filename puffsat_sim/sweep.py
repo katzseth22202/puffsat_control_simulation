@@ -48,7 +48,7 @@ class SweepSpec:
     ap: float = 15.0
 
 
-def _axis_factors(factor_range: tuple[float, float], points: int) -> list[float]:
+def axis_factors(factor_range: tuple[float, float], points: int) -> list[float]:
     """Log-spaced factors across ``factor_range``; a single point is nominal (1.0)."""
     if points == 1:
         return [1.0]
@@ -62,8 +62,8 @@ def grid_inputs(spec: SweepSpec) -> tuple[RunInputs, ...]:
     Cd is the outer axis and Cr the inner, so ``run_index = cd_i·cr_points + cr_i`` —
     the row-major ordering :func:`to_grid` relies on to reshape records back to 2D.
     """
-    cd_factors = _axis_factors(spec.cd_factor_range, spec.cd_points)
-    cr_factors = _axis_factors(spec.cr_factor_range, spec.cr_points)
+    cd_factors = axis_factors(spec.cd_factor_range, spec.cd_points)
+    cr_factors = axis_factors(spec.cr_factor_range, spec.cr_points)
     inputs: list[RunInputs] = []
     index = 0
     for cd_f in cd_factors:
@@ -127,8 +127,8 @@ def to_grid(records: tuple[RunRecord, ...], spec: SweepSpec) -> SweepGrid:
         raise ValueError(f"expected {expected} records for the grid, got {len(records)}")
     ordered = sorted(records, key=lambda r: r.inputs.run_index)
     shape = (spec.cd_points, spec.cr_points)
-    cd_factors = np.asarray(_axis_factors(spec.cd_factor_range, spec.cd_points), dtype=np.float64)
-    cr_factors = np.asarray(_axis_factors(spec.cr_factor_range, spec.cr_points), dtype=np.float64)
+    cd_factors = np.asarray(axis_factors(spec.cd_factor_range, spec.cd_points), dtype=np.float64)
+    cr_factors = np.asarray(axis_factors(spec.cr_factor_range, spec.cr_points), dtype=np.float64)
     return SweepGrid(
         cd_area_over_mass=spec.cd_area_over_mass * cd_factors,
         cr_area_over_mass=spec.cr_area_over_mass * cr_factors,
