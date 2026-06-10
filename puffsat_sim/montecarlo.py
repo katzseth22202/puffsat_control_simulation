@@ -59,6 +59,10 @@ from puffsat_sim.dispersion import (
     rtn_to_cartesian,
     summarize,
 )
+from puffsat_sim.coeff_requirement import (
+    format_coeff_requirement,
+    summarize_coeff_requirement,
+)
 from puffsat_sim.forces import (
     AtmosphericDrag,
     Geopotential,
@@ -715,6 +719,35 @@ def nav_feasibility_report(
     requirement = summarize_nav_requirement(nav_result)
     result, validations = run_nav_feasibility(spec or NavFeasibilitySpec(), requirement.phi, seed)
     return format_nav_feasibility(result) + "\n" + format_nav_validation(validations)
+
+
+def coeff_requirement_report(
+    catch_radius_m: float = 5_000.0,
+    prior_sigma_factor: float = 0.2,
+    cut_points: int = 3,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+) -> str:
+    """Run the C2a coefficient-knowledge requirement (ADR 0013): measured cuts → tolerance vs prior.
+
+    Thin glue over already-covered harnesses (the B2 no-integration-test precedent):
+    Φ from a minimal C0 sweep, ``∂Δv/∂c`` from two 1D A3 cuts under the same LM-damped
+    corrector, the verdict from the pure :mod:`puffsat_sim.coeff_requirement` chain.
+    The coast for the analytic SRP cross-check is the apogee→perigee half period.
+    """
+    nav_result = run_nav_sweep(NavSweepSpec(points_per_sign=1), _c0_controller, orbital_config)
+    phi = summarize_nav_requirement(nav_result).phi
+    cd_cut = run_sweep(SweepSpec(cd_points=cut_points, cr_points=1), _c0_controller, orbital_config)
+    cr_cut = run_sweep(SweepSpec(cd_points=1, cr_points=cut_points), _c0_controller, orbital_config)
+    semi_major, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    requirement = summarize_coeff_requirement(
+        phi,
+        cd_cut=cd_cut,
+        cr_cut=cr_cut,
+        catch_radius_m=catch_radius_m,
+        prior_sigma_factor=prior_sigma_factor,
+        coast_duration_s=keplerian_period(semi_major) / 2.0,
+    )
+    return format_coeff_requirement(requirement)
 
 
 def format_summary(result: EnsembleResult) -> str:

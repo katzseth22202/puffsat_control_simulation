@@ -112,3 +112,48 @@ from an unrecorded gradient; C2a measures it.
   `Cd`-parameter prediction question.
 - If C2a's measured tolerance lands tight (it should not, per the envelope), the recorded
   fallback is the C2b-quantified MCC-2 route — not better instruments.
+
+## Implementation findings (2026-06-10)
+
+Built in two commits — `89602f4` (pure `coeff_requirement.py`: cut → Δv-vector gradient →
+tolerance vs prior, analytic cross-check, RSS budget; TDD, 19 tests) plus the thin
+`montecarlo.coeff_requirement_report` seam — then run live: Φ from the minimal C0 sweep
+plus two 3-point 1D cuts under the unchanged A3/C0 LM corrector, 172 s wall, all cuts
+converged.
+
+1. **The requirement is confirmed ≈ free, with measured numbers replacing the unrecorded
+   A3 gradient.** `‖∂Δv/∂Cr‖ = 8.76×10⁻³ m/s` per 1.0 factor; lateral sensitivity
+   **745 m per factor**; tolerance **±6.71 factor units** at the 5 km catch radius. The
+   0.2 ground prior induces 149 m lateral — **COVERED ~34×**. Even a 100% coefficient
+   error would induce only ~745 m. The expected verdict holds: *in-flight coefficient
+   estimation is unnecessary for the midcourse — the burn precedes any possible estimate,
+   and the prior is ample.*
+
+2. **The analytic envelope validated the measurement: measured/analytic = 0.83.** The
+   SRP impulse `Cr·(A/m)·P₀·t_half = 0.0105 m/s` per factor bounds the measured gradient
+   from above, the ~17% trim being geometry projection — the chain-rule reasoning in the
+   Context section behaves as derived.
+
+3. **`Cd` is quantitatively unconstrained at the midcourse**, not just qualitatively
+   flat: gradient 3.4 µm/s per factor (the corrector's tolerance floor), tolerance
+   ~6×10⁴ factor units. A3's "~1D in `Cr`" is now a number; the `Cd` question lives in
+   C3's terminal regime, as decision 3 reassigned.
+
+4. **The error budget has ~22× headroom, with no dominant residual.** RSS 224 m vs
+   5 km: coefficient prior (`Cr`) 149 m ≈ C1 nav lateral 141 m > B1 erosion 89 m ≫
+   `Cd` prior 0.02 m. Three measured rungs contribute comparably — the budget discipline
+   (decision 5) starts with real entries.
+
+5. **Radius scaling: the prior covers down to a ~150 m catch radius** (tolerance =
+   radius/745 ≥ 0.2 ⇔ radius ≥ 149 m): covered ~6.7× at 1 km, NOT covered at 100 m —
+   but at 100 m the C1 nav lateral (141 m) already exceeds the radius by itself, so
+   **the coefficient prior is never the binding constraint at any feasible radius**.
+   Consistent with ADR 0012 finding 5: 100 m is the marginal regime across the board,
+   and the upgrade path there is third-body in the filter dynamics, not coefficient
+   knowledge.
+
+6. **C2b disposition.** With the prior covering ~34× and the budget at ~22× headroom,
+   the LinCov coefficient-augmentation layer (decision 4) is *contingency
+   quantification*, not requirement work — worth building only when something consumes
+   it (a tightened Rung-D radius, or C3's terminal predictor). It stays specced, not
+   scheduled.
