@@ -70,7 +70,8 @@ perfect-state, perfect-model, impulsive. Decisions settled (grilling session
    `scipy` is deferred (triggers: trust-region robustness near the A3 edge, or FD
    cost dominating at N=10⁴). `python-control` is rejected as wrong-category
    (feedback-control design, not trajectory targeting); the MPC library is a
-   Rung-D decision. Swappability is already provided by the `Controller` hook and
+   Rung-D decision (criteria + formulation/library options framed in design-doc §16.10).
+   Swappability is already provided by the `Controller` hook and
    the `solve_*` signature — no strategy abstraction is added (YAGNI). New pure
    module `control.py` holds the value types and solver; JVM glue lives in
    `montecarlo.py`. `Controller = Callable[[PredictFn, Target, Basis], ControlPlan]`

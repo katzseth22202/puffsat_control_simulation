@@ -46,7 +46,9 @@ predict/execute seam that already exists (ADR 0003): at A/B `predict == execute`
 5. **Controller: deterministic corrector + dumb terminal feedback at C; MPC at D.** The
    midcourse keeps the A1/A3 corrector fed an *estimated* state (no replanning); the terminal
    adds a fixed PID/LQR magnitude loop. MPC — adaptive constrained replanning — is held for
-   Rung D and measured against the C baseline. Same §16.6 logic that kept the corrector
+   Rung D and measured against the C baseline (its decision criteria, robust-formulation
+   options, and library menu are framed in design-doc §16.10). Same §16.6 logic that kept the
+   corrector
    deterministic at Rung A: hold the control law fixed and transparent so a miss is
    attributable to the *knowledge quality* under study, not to controller cleverness.
 
