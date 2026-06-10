@@ -21,6 +21,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from puffsat_sim.records import RunRecord
+
 Vec6 = tuple[float, float, float, float, float, float]
 
 _N_AXES = 6  # 0-2 = position R/T/N, 3-5 = velocity R/T/N
@@ -56,6 +58,21 @@ class NavOffsetCell:
     axis: int
     magnitude: float
     offset_rtn6: Vec6
+
+
+@dataclass(frozen=True)
+class NavSweepResult:
+    """A completed C0 nav-error sensitivity sweep (ADR 0011): the spec, cells, and per-cell records.
+
+    Pure value type — produced by the JVM ``run_nav_sweep`` but JVM-free here, so Φ assembly
+    and tolerance post-processing stay unit-testable.  ``records[k]`` is the corrector-in-loop
+    outcome for ``cells[k]``: its ``miss_rtn_m`` is the residual ``−Φδ`` and ``total_dv_m_s`` the
+    phantom correction the corrector burned chasing the (unobserved) nav error.
+    """
+
+    spec: NavSweepSpec
+    cells: tuple[NavOffsetCell, ...]
+    records: tuple[RunRecord, ...]
 
 
 def _axis_magnitudes(value_range: tuple[float, float], points: int) -> list[float]:

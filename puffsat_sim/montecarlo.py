@@ -58,6 +58,7 @@ from puffsat_sim.forces import (
     ThirdBody,
 )
 from puffsat_sim.forces.build import Environment, to_force_models
+from puffsat_sim.navigation import NavSweepResult, NavSweepSpec, Vec6, nav_grid_offsets
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
 from puffsat_sim.records import EnsembleResult, RunRecord
@@ -305,6 +306,7 @@ def _run_record(
     control: Controller | None,
     toa_window_s: float | None = None,
     actuator: Actuator | None = None,
+    nav_offset_rtn6: Vec6 = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
 ) -> RunRecord:
     """Propagate one run: apply injection, solve+execute the control plan, record the miss.
 
@@ -318,6 +320,11 @@ def _run_record(
     maneuver, and the residual miss is the actuator-realism erosion.  ``None`` keeps the
     Rung-A impulsive execution (commanded == applied).
 
+    ``nav_offset_rtn6`` (C0, ADR 0011) is a predict-side apogee-RTN navigation-error offset
+    (position R/T/N then velocity R/T/N): the corrector plans from ``x_true + offset`` while
+    execute stays on truth, so the residual miss is the apogee→crossing sensitivity Φ times
+    the nav error.  Zero-default leaves A/B untouched.
+
     ``toa_window_s`` (default off) is the A3 spurious-far-root gate: a converged plan whose
     crossing falls outside ±window of the nominal ToA is recorded non-converged (ADR 0007
     decision 3iii).  ``run_ensemble`` / the capstone leave it ``None``.
@@ -326,18 +333,31 @@ def _run_record(
     injection_dv_eme = rtn_to_cartesian(inputs.dv_rtn_m_s, ctx.apo_basis)
     injection = Vector3D(injection_dv_eme[0], injection_dv_eme[1], injection_dv_eme[2])
 
-    def make_crossing(correction_rtn: Vec3) -> _Crossing:
+    def make_crossing(
+        correction_rtn: Vec3, apo_offset_rtn6: Vec6 = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    ) -> _Crossing:
+        pos_off = rtn_to_cartesian(
+            (apo_offset_rtn6[0], apo_offset_rtn6[1], apo_offset_rtn6[2]), ctx.apo_basis
+        )
+        vel_off = rtn_to_cartesian(
+            (apo_offset_rtn6[3], apo_offset_rtn6[4], apo_offset_rtn6[5]), ctx.apo_basis
+        )
         corr_eme = rtn_to_cartesian(correction_rtn, ctx.apo_basis)
-        vel = ctx.apo_vel.add(injection).add(Vector3D(corr_eme[0], corr_eme[1], corr_eme[2]))
+        position = ctx.apo_pos.add(Vector3D(pos_off[0], pos_off[1], pos_off[2]))
+        vel = (
+            ctx.apo_vel.add(injection)
+            .add(Vector3D(corr_eme[0], corr_eme[1], corr_eme[2]))
+            .add(Vector3D(vel_off[0], vel_off[1], vel_off[2]))
+        )
         orbit = CartesianOrbit(
-            TimeStampedPVCoordinates(ctx.apo_date, ctx.apo_pos, vel), ctx.frame, ctx.mu
+            TimeStampedPVCoordinates(ctx.apo_date, position, vel), ctx.frame, ctx.mu
         )
         return _descend(orbit, physics, ctx.epoch, ctx.period, ctx.earth)
 
     if control is None:
         plan = ControlPlan(actions=(), converged=True, iterations=0)
     else:
-        plan = control(lambda c: make_crossing(c).position_m, ctx.target)
+        plan = control(lambda c: make_crossing(c, nav_offset_rtn6).position_m, ctx.target)
 
     # Execute the commanded plan against truth.  A1's single action is at the apogee
     # node (elapsed_s=0), so it folds into the initial velocity; downstream multi-node
@@ -508,6 +528,57 @@ def run_sweep(
     )
     nominal_record = _run_record(ctx, nominal_inputs, control, toa_window_s)
     return SweepResult(spec=spec, records=records, nominal=nominal_record)
+
+
+# C0 nominal truth (ADR 0011 decision 5): zero injection + nominal coefficients (perfect model),
+# so x_true is the nominal apogee state and the only predict-vs-execute divergence is the nav error.
+_NOMINAL_CD_AREA_OVER_MASS: float = 0.04
+_NOMINAL_CR_AREA_OVER_MASS: float = 0.02
+_NOMINAL_F10P7: float = 150.0
+_NOMINAL_AP: float = 15.0
+
+
+def _nav_nominal_inputs(run_index: int) -> RunInputs:
+    """Zero-injection, nominal-coefficient truth for a C0 cell (ADR 0011 decision 5)."""
+    return RunInputs(
+        run_index=run_index,
+        dv_rtn_m_s=(0.0, 0.0, 0.0),
+        cd_area_over_mass=_NOMINAL_CD_AREA_OVER_MASS,
+        cr_area_over_mass=_NOMINAL_CR_AREA_OVER_MASS,
+        f10p7=_NOMINAL_F10P7,
+        ap=_NOMINAL_AP,
+    )
+
+
+def run_nav_sweep(
+    spec: NavSweepSpec,
+    control: Controller,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+) -> NavSweepResult:
+    """Run the deterministic C0 navigation-error sensitivity sweep (ADR 0011).
+
+    Same physics path as :func:`run_sweep` / :func:`run_ensemble` (shared
+    :func:`_build_context` / :func:`_run_record` / nominal crossing), but the perturbation is a
+    **predict-side** apogee-RTN nav-error offset, with zero injection and nominal coefficients
+    (perfect model) — so the only predict-vs-execute divergence is the nav error.  Each cell
+    runs the corrector from the perturbed estimate and executes against truth; the recorded
+    ``miss_rtn_m`` is the residual ``−Φδ`` (uncontrollable at the apogee node) and
+    ``total_dv_m_s`` the phantom correction the corrector burned chasing it.  The zero cell is
+    the on-target reference (residual ~0).  ``control`` is required — the corrector is C0's
+    subject, not an option.
+    """
+    ctx = _build_context(orbital_config)
+    cells = nav_grid_offsets(spec)
+    records = tuple(
+        _run_record(
+            ctx,
+            _nav_nominal_inputs(cell.cell_index),
+            control,
+            nav_offset_rtn6=cell.offset_rtn6,
+        )
+        for cell in cells
+    )
+    return NavSweepResult(spec=spec, cells=cells, records=records)
 
 
 def format_summary(result: EnsembleResult) -> str:
