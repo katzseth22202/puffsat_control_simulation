@@ -229,3 +229,81 @@ def sample_nav_error(rng: np.random.Generator, sigma6: NDArray[np.float64]) -> V
         float(draw[4]),
         float(draw[5]),
     )
+
+
+@dataclass(frozen=True)
+class NavRequirement:
+    """The C0 navigation-accuracy requirement reduced from a sweep (ADR 0011).
+
+    ``axis_lateral_sensitivity`` is ``‖Φ_lateral[:, j]‖`` per axis — the dominance metric
+    (lateral interception-miss per unit nav error); ``axis_linearity_range`` the extent over
+    which ``−Φδ`` holds; ``phantom_dv_*`` the Δv the corrector burned chasing the unobserved
+    error (ADR 0011 decision 5).
+    """
+
+    phi: NDArray[np.float64]
+    axis_lateral_sensitivity: NDArray[np.float64]
+    axis_linearity_range: NDArray[np.float64]
+    phantom_dv_max_m_s: float
+    phantom_dv_mean_m_s: float
+    converged_fraction: float
+
+
+def summarize_nav_requirement(result: NavSweepResult, rel_tol: float = 0.1) -> NavRequirement:
+    """Reduce a nav-error sweep to the C0 requirement (ADR 0011).
+
+    Φ, per-axis dominance and linearity range, and the phantom-Δv the corrector burned.
+    """
+    misses = np.array([r.miss_rtn_m for r in result.records], dtype=np.float64)
+    phi = assemble_sensitivity(result.cells, misses)
+    lateral = np.linalg.norm(phi[_LATERAL_AXES, :], axis=0)
+
+    magnitudes = np.array([c.magnitude for c in result.cells], dtype=np.float64)
+    axes = np.array([c.axis for c in result.cells])
+    linear = np.empty(_N_AXES, dtype=np.float64)
+    for axis in range(_N_AXES):
+        on_axis = axes == axis
+        linear[axis] = linearity_range(magnitudes[on_axis], misses[on_axis], rel_tol)
+
+    perturbed = [
+        rec for cell, rec in zip(result.cells, result.records, strict=True) if cell.axis >= 0
+    ]
+    phantom = np.array([rec.total_dv_m_s for rec in perturbed], dtype=np.float64)
+    converged = np.array([rec.converged for rec in perturbed], dtype=np.bool_)
+    return NavRequirement(
+        phi=phi,
+        axis_lateral_sensitivity=np.asarray(lateral, dtype=np.float64),
+        axis_linearity_range=linear,
+        phantom_dv_max_m_s=float(phantom.max()),
+        phantom_dv_mean_m_s=float(phantom.mean()),
+        converged_fraction=float(converged.mean()),
+    )
+
+
+_AXIS_NAMES: tuple[str, ...] = ("R-pos", "T-pos", "N-pos", "R-vel", "T-vel", "N-vel")
+_AXIS_UNITS: tuple[str, ...] = ("m", "m", "m", "m/s", "m/s", "m/s")
+
+
+def format_nav_requirement(req: NavRequirement, catch_radii_m: Sequence[float]) -> str:
+    """Human-readable C0 requirement report — dominance ranking + per-axis tolerance table."""
+    ranking = np.argsort(req.axis_lateral_sensitivity)[::-1]
+    tol_by_radius = [(r, axis_tolerance(req.phi, r)) for r in catch_radii_m]
+
+    lines = [
+        "C0 navigation requirement — apogee-RTN error → 200 km lateral interception miss",
+        f"  Corrector converged: {req.converged_fraction * 100:.0f}% of perturbed cells",
+        f"  Phantom Δv (chasing the unobserved nav error): mean {req.phantom_dv_mean_m_s:.4f},"
+        f" max {req.phantom_dv_max_m_s:.4f} m/s",
+        "  Dominance (lateral miss per unit error ‖Φ_TN‖, largest first): "
+        + ", ".join(f"{_AXIS_NAMES[j]} {req.axis_lateral_sensitivity[j]:.3g}" for j in ranking),
+        "  Per-axis: sensitivity [m miss/unit] | linear-to [unit] | "
+        + " | ".join(f"tol@{r / 1e3:g}km" for r in catch_radii_m),
+    ]
+    for axis in range(_N_AXES):
+        tols = " | ".join(f"{tol[axis]:.3g}" for _, tol in tol_by_radius)
+        lines.append(
+            f"    {_AXIS_NAMES[axis]} [{_AXIS_UNITS[axis]}]: "
+            f"{req.axis_lateral_sensitivity[axis]:.3g} | "
+            f"{req.axis_linearity_range[axis]:.3g} | {tols}"
+        )
+    return "\n".join(lines)

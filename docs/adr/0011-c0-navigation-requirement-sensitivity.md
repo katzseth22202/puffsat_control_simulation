@@ -119,3 +119,36 @@ not a control experiment.
   to **C1** and the paper's sizing notes; it is *not* settled by this ADR.
 - Φ and the characterized requirement feed **Rung D** (sample nav error from the C1 covariance
   rather than re-running the filter every trajectory).
+
+## Implementation findings (2026-06-10)
+
+Built (`puffsat_sim/navigation.py` pure core + `montecarlo.run_nav_sweep`) and ran the default
+61-cell sweep (`points_per_sign=5`, `pos 1e-1–1e4 m`, `vel 1e-4–1e0 m/s`), corrector at
+`tol_m=0.01`, LM:
+
+1. **The cancellation holds, measured.** 100% of cells converged and the residual stayed **linear
+   across the entire swept range** (10 km position, 1 m/s velocity), so `−Φδ` is an excellent model
+   far past the nav errors of interest — vindicating the Φ-basis / `Φ Σ Φᵀ` decision (no sampling
+   needed).
+
+2. **Velocity-dominance is overwhelming, and it's transverse.** Lateral-miss sensitivity
+   ‖Φ_TN‖ = **2.15×10⁵ m per m/s** (T-vel), **4.3×10³** (N-vel), **1.3×10³** (R-vel), **0.60** (R-pos),
+   **≈0** (T-pos, N-pos). Velocity beats position ~5 orders; transverse velocity beats the other
+   velocity axes 50–160×. The T-pos/N-pos ≈ 0 result is the geometric fact that an along-track apogee
+   displacement is a pure phase shift (same orbit, only ToA moves) — so decision 3's "measure, don't
+   assume" paid off by *confirming* the design-doc intuition rather than importing it.
+
+3. **The binding requirement closes the loop with Appendix A.** Apogee transverse velocity must be
+   known to **~2.3 cm/s** (5 km catch radius) → 4.7 mm/s (1 km) → 0.47 mm/s (100 m). This both
+   confirms and *refines* the paper's ~1–2 cm/s: the binding axis is the **along-track/timing
+   amplification** (~215 km per m/s at the 200 km crossing), not the perigee-radial `dr_p/dv_a`
+   (~30 km per m/s) — a sharper statement than Appendix A's perigee framing.
+
+4. **Phantom Δv is real but small.** The corrector burns up to ~1 m/s (at the 1 m/s velocity cell)
+   chasing the unobserved error (decision 5) — a cost, not a catastrophe.
+
+5. **Numerical fidelity is ample here; flagged for the cm terminal.** The result is km/m-scale,
+   ~5 orders above the truth model's `rel_tol=1e-10` floor (~cm at the 1.56e8 m apogee scale). float64
+   representation (ULP ~35 nm at apogee) and the small-force disparity (~1e-6 of gravity, ~10 orders
+   above the 1e-16 roundoff floor) are non-issues; the integrator *tolerance*, not the float, is the
+   limiter — recorded as a C3 prerequisite (§13).

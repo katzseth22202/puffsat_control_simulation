@@ -4,7 +4,9 @@ assembly, covariance/tolerance, and the seeded Gaussian sampler (no JVM)."""
 import numpy as np
 import pytest
 
+from puffsat_sim.dispersion import RunInputs, Vec3
 from puffsat_sim.navigation import (
+    NavSweepResult,
     NavSweepSpec,
     assemble_sensitivity,
     axis_tolerance,
@@ -12,7 +14,25 @@ from puffsat_sim.navigation import (
     linearity_range,
     nav_grid_offsets,
     sample_nav_error,
+    summarize_nav_requirement,
 )
+from puffsat_sim.records import RunRecord
+
+
+def _nav_record(run_index: int, miss_rtn_m: Vec3, dv: float, converged: bool = True) -> RunRecord:
+    """A minimal RunRecord carrying just the fields the nav summary reads."""
+    return RunRecord(
+        inputs=RunInputs(run_index, (0.0, 0.0, 0.0), 0.04, 0.02, 150.0, 15.0),
+        miss_rtn_m=miss_rtn_m,
+        toa_miss_s=0.0,
+        perigee_alt_m=50_000.0,
+        crossing_position_m=(0.0, 0.0, 0.0),
+        crossing_velocity_m_s=(0.0, 0.0, 0.0),
+        control_log=(),
+        total_dv_m_s=dv,
+        converged=converged,
+        iterations=1,
+    )
 
 
 class TestNavGridOffsets:
@@ -130,3 +150,34 @@ class TestSampleNavError:
         rng = np.random.default_rng(7)
         draws = np.array([sample_nav_error(rng, sigma) for _ in range(30000)])
         np.testing.assert_allclose(np.cov(draws, rowvar=False), sigma, atol=0.2)
+
+
+class TestSummarizeNavRequirement:
+    def _linear_result(self, phi_true: np.ndarray, dv: float) -> NavSweepResult:
+        spec = NavSweepSpec(points_per_sign=3)
+        cells = nav_grid_offsets(spec)
+        records = tuple(
+            _nav_record(
+                c.cell_index,
+                tuple(phi_true @ np.asarray(c.offset_rtn6, dtype=np.float64)),  # type: ignore[arg-type]
+                dv=0.0 if c.axis < 0 else dv,
+            )
+            for c in cells
+        )
+        return NavSweepResult(spec=spec, cells=cells, records=records)
+
+    def test_recovers_phi_lateral_sensitivity_full_linearity_and_phantom_dv(self) -> None:
+        rng = np.random.default_rng(3)
+        phi_true = rng.normal(size=(3, 6))
+        req = summarize_nav_requirement(self._linear_result(phi_true, dv=0.2), rel_tol=1e-6)
+
+        np.testing.assert_allclose(req.phi, phi_true, atol=1e-9)
+        np.testing.assert_allclose(
+            req.axis_lateral_sensitivity, np.linalg.norm(phi_true[1:3, :], axis=0)
+        )
+        # perfectly linear → linear out to the full swept magnitude (1e4 m pos, 1.0 m/s vel)
+        np.testing.assert_allclose(
+            req.axis_linearity_range, [1e4, 1e4, 1e4, 1.0, 1.0, 1.0], rtol=1e-9
+        )
+        assert req.phantom_dv_max_m_s == pytest.approx(0.2)
+        assert req.converged_fraction == pytest.approx(1.0)

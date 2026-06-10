@@ -12,6 +12,7 @@ supplies a controller through the same hook (§14.1).  Per-run replay (§14.2):
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +39,14 @@ from puffsat_sim.actuator import Actuator, plan_burn
 from puffsat_sim.anti_drag import AntiDragProfile, summarize_anti_drag
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
 from puffsat_sim.constants import EARTH_RADIUS_M
-from puffsat_sim.control import ControlPlan, Controller, Target, passes_toa_gate
+from puffsat_sim.control import (
+    ControlPlan,
+    Controller,
+    PredictFn,
+    Target,
+    passes_toa_gate,
+    solve_apogee_correction,
+)
 from puffsat_sim.dispersion import (
     Basis,
     DispersionSpec,
@@ -58,7 +66,14 @@ from puffsat_sim.forces import (
     ThirdBody,
 )
 from puffsat_sim.forces.build import Environment, to_force_models
-from puffsat_sim.navigation import NavSweepResult, NavSweepSpec, Vec6, nav_grid_offsets
+from puffsat_sim.navigation import (
+    NavSweepResult,
+    NavSweepSpec,
+    Vec6,
+    format_nav_requirement,
+    nav_grid_offsets,
+    summarize_nav_requirement,
+)
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
 from puffsat_sim.records import EnsembleResult, RunRecord
@@ -579,6 +594,30 @@ def run_nav_sweep(
         for cell in cells
     )
     return NavSweepResult(spec=spec, cells=cells, records=records)
+
+
+def _c0_controller(predict: PredictFn, target: Target) -> ControlPlan:
+    """C0 corrector: tol tight enough that the predict-null floor sits well below the residual −Φδ.
+
+    LM damping + budget-scale step cap as in the A3 sweep (ADR 0007 decision 3); ``tol_m=0.01``
+    so the corrector's 1-cm predict-null floor is far under even the few-metre smallest residuals,
+    keeping the assembled Φ clean.
+    """
+    return solve_apogee_correction(
+        predict, target, tol_m=0.01, lm=True, max_step_m_s=50.0, max_iter=15
+    )
+
+
+def nav_requirement_report(
+    spec: NavSweepSpec | None = None,
+    catch_radii_m: Sequence[float] = (5_000.0, 1_000.0, 100.0),
+) -> str:
+    """Run the C0 nav-error sweep and reduce it to the navigation-requirement report (ADR 0011)."""
+    result = run_nav_sweep(spec or NavSweepSpec(), control=_c0_controller)
+    req = summarize_nav_requirement(result)
+    phi_lines = ["  Φ (3×6 apogee→crossing sensitivity), rows R/T/N, cols R/T/N-pos R/T/N-vel:"]
+    phi_lines += ["    " + "  ".join(f"{v:+.3e}" for v in row) for row in req.phi]
+    return format_nav_requirement(req, catch_radii_m) + "\n" + "\n".join(phi_lines)
 
 
 def format_summary(result: EnsembleResult) -> str:
