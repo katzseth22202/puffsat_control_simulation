@@ -123,6 +123,21 @@ omnidirectional proportional cold-gas thruster (400 mN max, ~5 mN floor, ~1°/s 
 on the resulting Δv, not an actuator state. _Avoid_: "thruster" for the model (the model is
 the proportional abstraction of a bang-bang cluster, not the hardware).
 
+**Coordinator node**:
+The paper's off-board capable asset (gain, steering, compute; `sec:coordinator_node_dry_mass_disposal`)
+that ranges the PuffSats. Co-flies with the swarm on a **matched-period** neighboring orbit
+(same semi-major axis — no secular along-track drift — with perigee raised to **≥200 km**,
+apogee trimmed to compensate: nodes are reusable assets, not debris, and must never enter
+the burn-up zone; end-of-life disposal is a ~5–15 m/s perigee-lowering burn at apogee).
+Nearby through the whole high-altitude coast. In the sim (C1 on) a node is a
+**known-ephemeris beacon**: its
+position is a measurement-model *input*, never a filter state; its own nav error folds
+into the measurement-noise `R` as an inflation term. The node *geometry* (count, LOS
+angular diversity) is a **derived requirement** — C1 outputs what geometry/Doppler quality
+hits the C0 threshold; the paper consumes it as a sizing result, the sim never assumes a
+fixed constellation. _Avoid_: ground station (nodes are not Earth-fixed), beacon alone
+(loses the compute/latency role C4 prices).
+
 **ControlAction / ControlPlan**:
 Pure value types in `control.py`. A **ControlAction** is one commanded maneuver (node
 + RTN Δv + magnitude); a **ControlPlan** is the ordered actions a **Controller**

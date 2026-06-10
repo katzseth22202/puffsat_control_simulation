@@ -89,7 +89,8 @@ not a control experiment.
    because multilateration needs *simultaneous* multi-node visibility and PuffSat-side steering would
    both fight that geometry and add mass against the few-gram ethos). **This sensing-architecture
    decision is C1's to settle and ADR** — recorded here only as the bracket-motivation C0 borrows;
-   the retroreflective patch is demoted to a passive optical fallback.
+   the retroreflective patch is demoted to a passive optical fallback. *(Settled: ADR 0012 —
+   range + carrier Doppler, derived node geometry, clock-free coherent transponder.)*
 
 ## Considered options
 
@@ -116,7 +117,7 @@ not a control experiment.
 - The predict-side state-offset seam is the **C1 consumer**: C1's UKF estimate-error covariance
   feeds `Φ Σ Φᵀ` through the same Φ, and its achieved covariance is checked against C0's threshold.
 - The **sensing architecture** (multilateration / few-gram transponder / GNSS-at-apogee) is carried
-  to **C1** and the paper's sizing notes; it is *not* settled by this ADR.
+  to **C1** and the paper's sizing notes; it is *not* settled by this ADR (now settled — ADR 0012).
 - Φ and the characterized requirement feed **Rung D** (sample nav error from the C1 covariance
   rather than re-running the filter every trajectory).
 
