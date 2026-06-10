@@ -108,7 +108,12 @@ The two propagation roles (ADR 0003). **Predict** is the onboard model handed to
 reality (the **Actuator** maps commanded→applied here at Rung B). Identical
 `full_force` at Rung A; at Rung B they **diverge** — the corrector predicts impulsive
 while the Actuator executes a finite burn, so the residual interception miss is the
-measured actuator-realism erosion (ADR 0008).
+measured actuator-realism erosion (ADR 0008). At Rung **C0** the divergence moves to
+predict's *starting state*: a navigation-error offset on the apogee planning state
+(ADR 0011). Because the *same* correction is applied in predict and execute, the
+residual is the apogee→crossing sensitivity (the 3×6 STM Φ) times the nav error — so
+nav error is **uncontrollable at the apogee node**, and C0 is a sensitivity sweep, not
+a control experiment.
 
 **Actuator (finite burn)**:
 The Rung B execution layer that turns a commanded impulsive Δv (from the **Differential
