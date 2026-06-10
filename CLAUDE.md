@@ -211,6 +211,7 @@ make clean     # remove caches
 - `puffsat_sim/control.py` — pure Rung A1 differential corrector: `Target`/`ControlAction`/`ControlPlan` + `solve_apogee_correction` (Newton + finite-difference Jacobian; no JVM) (ADR 0003).
 - `puffsat_sim/records.py` — pure result value types `RunRecord` / `EnsembleResult` (no JVM, so the resume sink stays serializable/testable) (ADR 0003).
 - `puffsat_sim/sink.py` — pure JSONL resume sink: `record_to_dict`/`record_from_dict`, `append_record`/`read_records`, `plan_resume` (resume-by-complement; no JVM) (ADR 0003).
+- `puffsat_sim/estimation.py` — pure C1 estimation core (ADR 0012, no JVM): owned typed UKF (sigma points, unscented transform, predict/update), two-body+J2 onboard filter dynamics, measurement models (range/LOS-Doppler/GNSS) with `NodeState` known-ephemeris beacons, white-acceleration `Q`, LinCov recursion (`run_lincov`), NEES consistency bounds.
 - `puffsat_sim/montecarlo.py` — JVM-side dispersion harness: `run_ensemble` with the `control` hook (open-loop `control=None`, or the Rung A1 corrector via predict/execute) and an optional `sink_path` for checkpoint/resume; `make capstone` (ADR 0002, 0003).
 - `tests/` — pure-Python unit suite (no JVM); `tests/integration/` requires a live JVM.
 
