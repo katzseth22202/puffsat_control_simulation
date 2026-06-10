@@ -14,9 +14,11 @@ from puffsat_sim.nav_feasibility import (
     covariance_to_rtn,
     evaluate_cell,
     format_nav_feasibility,
+    format_nav_validation,
     nav_feasibility_cells,
     node_directions_rtn,
     sweep_nav_feasibility,
+    validate_cell,
 )
 from puffsat_sim.orbital_math import keplerian_elements
 
@@ -199,3 +201,57 @@ class TestSweepNavFeasibility:
         assert "range-only" in report
         for axis in ("cadence_hz", "cone_half_angle_rad", "n_nodes", "q_accel_m_s2"):
             assert axis in report
+
+
+def _truth_arc(n_epochs: int, dt_s: float, t_vel_kick_m_s2: float = 0.0) -> np.ndarray:
+    """A synthetic truth arc: the filter's own flow, optionally with an unmodeled
+    constant transverse acceleration applied as per-step velocity kicks."""
+    from puffsat_sim.estimation import two_body_j2_flow
+
+    states = [two_body_j2_flow(apogee_state(), -n_epochs * dt_s)]
+    for _ in range(n_epochs):
+        x = two_body_j2_flow(states[-1], dt_s)
+        v = x[3:6]
+        x[3:6] = v + t_vel_kick_m_s2 * dt_s * v / np.linalg.norm(v)
+        states.append(x)
+    return np.array(states)
+
+
+class TestValidateCell:
+    def test_matched_filter_is_nees_consistent(self) -> None:
+        cell = _cell_with(q_accel_m_s2=0.0)
+        n_epochs = 25
+        truth = _truth_arc(n_epochs, 1.0 / cell.cadence_hz)
+
+        outcome = validate_cell(cell, _SHORT_ARC_SPEC, truth, seed=20260610)
+
+        assert outcome.n_epochs == n_epochs
+        lo, hi = outcome.nees_bounds
+        assert lo < outcome.average_nees < hi
+        assert outcome.consistent
+        assert outcome.claimed_t_vel_sigma_m_s < _SHORT_ARC_SPEC.prior_vel_sigma_m_s
+
+    def test_unmodeled_acceleration_is_flagged_optimistic(self) -> None:
+        cell = _cell_with(q_accel_m_s2=0.0)
+        n_epochs = 25
+        truth = _truth_arc(n_epochs, 1.0 / cell.cadence_hz, t_vel_kick_m_s2=5e-6)
+
+        outcome = validate_cell(cell, _SHORT_ARC_SPEC, truth, seed=20260610)
+
+        assert outcome.average_nees > outcome.nees_bounds[1]
+        assert not outcome.consistent
+
+    def test_validation_report_names_the_verdict_per_cell(self) -> None:
+        cell = _cell_with(q_accel_m_s2=0.0)
+        truth_ok = _truth_arc(25, 1.0 / cell.cadence_hz)
+        truth_bad = _truth_arc(25, 1.0 / cell.cadence_hz, t_vel_kick_m_s2=5e-6)
+        outcomes = (
+            validate_cell(cell, _SHORT_ARC_SPEC, truth_ok, seed=20260610),
+            validate_cell(cell, _SHORT_ARC_SPEC, truth_bad, seed=20260610),
+        )
+
+        report = format_nav_validation(outcomes)
+
+        assert "NEES" in report
+        assert "consistent" in report
+        assert "OPTIMISTIC" in report

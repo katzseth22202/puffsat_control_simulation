@@ -26,18 +26,22 @@ import numpy as np
 from numpy.typing import NDArray
 
 from puffsat_sim.constants import EARTH_RADIUS_M, WGS84_MU
-from puffsat_sim.dispersion import rtn_basis
+from puffsat_sim.dispersion import rtn_basis, rtn_components
 from puffsat_sim.estimation import (
     FilterState,
     LincovEpoch,
     MeasurementModel,
     NodeState,
     UnscentedSpec,
+    average_nees_bounds,
     los_velocity_to_node,
+    nees,
     process_noise_white_accel,
     range_to_node,
     run_lincov,
     two_body_j2_flow,
+    ukf_predict,
+    ukf_update,
 )
 from puffsat_sim.mission import APOGEE_ALT_M, PERIGEE_ALT_M
 from puffsat_sim.navigation import induced_miss_covariance
@@ -352,3 +356,116 @@ def node_directions_rtn(
             )
         )
     return tuple(directions)
+
+
+@dataclass(frozen=True)
+class NavValidationOutcome:
+    """One seeded UKF truth run judged by NEES (ADR 0012 decision 7, layer 2).
+
+    ``consistent`` is the two-sided chi-square gate on the time-averaged NEES —
+    the claim "the filter's actual error is statistically inside its claimed Σ".
+    Failing *high* is the dangerous direction (optimistic filter: the LinCov
+    envelope would be fiction and q needs retuning); failing low is pessimism.
+    ``claimed_t_vel_sigma_m_s`` vs ``actual_t_vel_error_m_s`` is the C0-binding
+    axis diagnostic at the final (apogee) epoch.
+    """
+
+    cell: NavFeasibilityCell
+    n_epochs: int
+    average_nees: float
+    nees_bounds: tuple[float, float]
+    consistent: bool
+    claimed_t_vel_sigma_m_s: float
+    actual_t_vel_error_m_s: float
+
+
+def validate_cell(
+    cell: NavFeasibilityCell,
+    spec: NavFeasibilitySpec,
+    truth_states: NDArray[np.float64],
+    seed: int,
+    unscented: UnscentedSpec = _DEFAULT_UNSCENTED,
+) -> NavValidationOutcome:
+    """Run the real UKF against a truth arc with seeded measurements; judge by NEES.
+
+    ``truth_states`` is the ``(n_epochs+1, 6)`` truth at the arc start plus each
+    measurement epoch, sampled at the cell's cadence (the JVM seam supplies an
+    Orekit full-force arc; tests supply synthetic ones).  Nodes ride the truth as
+    rigid RTN offsets and the filter knows their ephemerides exactly (decision 1
+    — node error lives in R, not in the geometry).  The filter is initialized at
+    truth + a seeded prior draw, so prior, measurement noise, and (if the truth
+    has none beyond the filter model) dynamics are all consistently modeled and
+    the time-averaged NEES should sit inside :func:`average_nees_bounds` — the
+    epochs are treated as independent draws, the standard (approximate) NEES
+    convention.
+    """
+    truth = np.asarray(truth_states, dtype=np.float64)
+    n_epochs = truth.shape[0] - 1
+    dt_s = 1.0 / cell.cadence_hz
+    rng = np.random.default_rng(seed)
+
+    def flow(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return two_body_j2_flow(x, dt_s, max_step_s=spec.flow_max_step_s)
+
+    prior = np.diag([spec.prior_pos_sigma_m**2] * 3 + [spec.prior_vel_sigma_m_s**2] * 3).astype(
+        np.float64
+    )
+    state = FilterState(x=truth[0] + rng.multivariate_normal(np.zeros(6), prior), cov=prior)
+    q = process_noise_white_accel(cell.q_accel_m_s2, dt_s)
+
+    nees_values = np.empty(n_epochs, dtype=np.float64)
+    for k in range(1, n_epochs + 1):
+        state = ukf_predict(state, flow, q, unscented)
+        for model in _epoch_measurements(_node_states_at(truth[k], cell, spec), cell):
+            noise = rng.normal(0.0, math.sqrt(float(model.noise_cov[0, 0])), size=1)
+            state = ukf_update(
+                state, model.h(truth[k]) + noise, model.h, model.noise_cov, unscented
+            )
+        nees_values[k - 1] = nees(state.x - truth[k], state.cov)
+
+    average = float(nees_values.mean())
+    bounds = average_nees_bounds(dim=6, n_samples=n_epochs)
+    basis = rtn_basis(
+        (float(truth[-1, 0]), float(truth[-1, 1]), float(truth[-1, 2])),
+        (float(truth[-1, 3]), float(truth[-1, 4]), float(truth[-1, 5])),
+    )
+    error_vel = state.x[3:6] - truth[-1, 3:6]
+    actual_t_vel = rtn_components(
+        (float(error_vel[0]), float(error_vel[1]), float(error_vel[2])), basis
+    )[1]
+    sigma_rtn = covariance_to_rtn(state.cov, truth[-1])
+    return NavValidationOutcome(
+        cell=cell,
+        n_epochs=n_epochs,
+        average_nees=average,
+        nees_bounds=bounds,
+        consistent=bounds[0] <= average <= bounds[1],
+        claimed_t_vel_sigma_m_s=float(math.sqrt(sigma_rtn[4, 4])),
+        actual_t_vel_error_m_s=abs(actual_t_vel),
+    )
+
+
+def format_nav_validation(outcomes: tuple[NavValidationOutcome, ...]) -> str:
+    """Human-readable NEES validation report — the layer-2 verdict per validated cell.
+
+    "OPTIMISTIC" (average NEES above the upper bound) is the dangerous direction:
+    the filter's claimed Σ — and hence the LinCov envelope — would be fiction
+    until q is retuned.  "pessimistic" (below the lower bound) wastes margin but
+    does not invalidate a MEETS verdict.
+    """
+    lines = ["NEES validation — seeded UKF truth runs vs claimed covariance (ADR 0012)"]
+    for outcome in outcomes:
+        lo, hi = outcome.nees_bounds
+        if outcome.consistent:
+            verdict = "consistent"
+        elif outcome.average_nees > hi:
+            verdict = "OPTIMISTIC (claimed Σ too small — retune q)"
+        else:
+            verdict = "pessimistic (claimed Σ too large)"
+        lines.append(
+            f"    {_cell_value_label(outcome.cell)}: avg NEES {outcome.average_nees:.2f} "
+            f"vs [{lo:.2f}, {hi:.2f}] over {outcome.n_epochs} epochs → {verdict}; "
+            f"T-vel σ claimed {outcome.claimed_t_vel_sigma_m_s:.3g} m/s, "
+            f"actual |err| {outcome.actual_t_vel_error_m_s:.3g} m/s"
+        )
+    return "\n".join(lines)
