@@ -75,9 +75,17 @@ class NavFeasibilitySpec:
 
     Nominal values sit at the grilled leans: ~1 m two-way range, ~1 mm/s carrier
     Doppler (OCXO-bound link budget, decision 3), 0.03 Hz coast cadence (§16.4),
-    4 nodes at 45° LOS half-angle on ~3000 km baselines, q at the omitted-SRP
-    scale (decision 6).  Sweep brackets run each knob from comfortably-better to
-    clearly-degraded so the envelope edge is inside the swept range.
+    4 nodes at 45° LOS half-angle on ~3000 km baselines.  Sweep brackets run each
+    knob from comfortably-better to clearly-degraded so the envelope edge is
+    inside the swept range.
+
+    Nominal q is the **NEES-validated** value (measured 2026-06-10, ADR 0012
+    findings): the truth−filter gap at apogee is dominated by the third-body
+    tidal acceleration (~3e-5 m/s², Moon+Sun — three orders above SRP), and the
+    seeded truth runs test honest only at q ≈ 1e-4.  The original SRP-scale
+    guess (5e-8) stays as a swept point to document the trap: its envelope is
+    fiction (claimed 6 µm/s vs actual 0.09 m/s — above the C0 requirement), and
+    3e-5 marks the measured consistency crossover.
     """
 
     nominal_range_sigma_m: float = 1.0
@@ -85,7 +93,7 @@ class NavFeasibilitySpec:
     nominal_cadence_hz: float = 0.03
     nominal_cone_half_angle_rad: float = math.radians(45.0)
     nominal_n_nodes: int = 4
-    nominal_q_accel_m_s2: float = 5e-8
+    nominal_q_accel_m_s2: float = 1e-4
 
     range_sigma_values_m: tuple[float, ...] = (0.01, 100.0)
     doppler_sigma_values_m_s: tuple[float | None, ...] = (1e-4, 1e-2, None)
@@ -96,7 +104,7 @@ class NavFeasibilitySpec:
         math.radians(90.0),
     )
     n_nodes_values: tuple[int, ...] = (3, 6)
-    q_accel_values_m_s2: tuple[float, ...] = (5e-9, 5e-7)
+    q_accel_values_m_s2: tuple[float, ...] = (5e-8, 3e-5)
 
     baseline_m: float = 3e6
     arc_duration_s: float = 43_200.0

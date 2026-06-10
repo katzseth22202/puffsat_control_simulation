@@ -177,3 +177,57 @@ Doppler directly, and/or ranges filtered through the dynamics over the slow apog
   ~10× Doppler margin at 3000 km), the GNSS mass/COCOM reality (~30–50 g, unlocked receiver),
   and the node constellation principle (matched `a`, perigee ≥200 km, ~5–15 m/s
   raise/disposal burns).
+
+## Implementation findings (2026-06-10)
+
+Built across three commits — `73f88bc` (pure `estimation.py`: owned UKF, two-body+J2 flow,
+measurement models, LinCov, NEES), `b8d9a9d` (pure `nav_feasibility.py`: one-axis-at-a-time
+sweep, cone-geometry node family, Σ→RTN, `Φ Σ Φᵀ` verdict), `ad3186b` (`validate_cell` +
+the `montecarlo` truth-arc seam) — then run for real: Φ re-derived live (a 13-cell
+`points_per_sign=1` C0 sweep, 137 s; lateral column norms match ADR 0011's full sweep), the
+15-cell LinCov envelope (~50 s), and the seeded NEES validation against full-force truth.
+
+1. **The validation layer earned its place immediately: the SRP-scale q was fiction.** At the
+   grilled nominal `q = 5e-8 m/s²` the filter *claimed* σ_Tvel ≈ 6 µm/s while its *actual*
+   error against full-force truth was **0.09 m/s — above the 2.3 cm/s C0 requirement itself**
+   (average NEES ~8×10⁸ vs bounds [5.81, 6.19]). The truth−filter gap at apogee is dominated
+   not by SRP but by the **third-body tidal acceleration** (~3×10⁻⁵ m/s², Moon+Sun — three
+   orders above SRP). A LinCov-only C1 would have shipped this fiction; decision 7's layer 2
+   caught it on the first run.
+
+2. **The q-ladder localizes the consistency crossover at the tidal scale, and the verdict
+   survives there.** Measured (12 h arc, nominal suite): q = 5e-8 → NEES 8e8; 5e-7 → 3×10⁶;
+   5e-6 → 7×10³; **3e-5 → 39** (claimed 0.40 mm/s ≈ actual 0.42 mm/s — magnitudes agree, the
+   residual NEES is the colored-vs-white signature of a deterministic tide under a white Q);
+   **1e-4 → 5.2, honest** (just under the lower bound — mildly pessimistic; actual error
+   0.08 mm/s, ~8× under claimed). `NavFeasibilitySpec.nominal_q_accel_m_s2` now carries the
+   validated **1e-4**, with 5e-8 (the trap) and 3e-5 (the crossover) as the swept points.
+
+3. **C1 verdict: the navigation requirement is met with ~35× margin at the honest q.** All 15
+   envelope cells MEET the 5 km catch radius; at the validated nominal, σ_Tvel = 0.66 mm/s vs
+   the 2.3 cm/s requirement and lateral 1σ miss = 141 m vs 5 km. Every swept degradation
+   (100 m ranges, 5° LOS cone, 3 nodes, 0.003 Hz cadence) stays under by ≥ an order. The
+   1 km catch radius (4.7 mm/s) also clears ~7×.
+
+4. **Doppler is load-bearing at the honest q — the apparent range-only tie was a q=5e-8
+   artifact.** At the fictional q the process noise was so tight that velocity knowledge
+   accrued through the dynamics (the grilling's "route 2") regardless of measurement type,
+   and the two cells tied. The canonical run at the validated q = 1e-4 separates them:
+   with-Doppler claims σ_Tvel = 0.66 mm/s and is NEES-honest (5.18, mildly pessimistic);
+   range-only degrades ~2.7× to 1.8 mm/s and goes mildly OPTIMISTIC (NEES 9.4 vs upper
+   bound 6.19 — mild, not the 10⁸ pathology; its actual T-vel error 1.33 mm/s stays under
+   its claim). Range-only still MEETS with ~13× margin (lateral 386 m vs 5 km), so the
+   paper claim *can* fall back on ranging alone, but a range-only flight would want its own
+   slightly higher q — the with-Doppler nominal is the validated configuration.
+
+5. **The 100 m catch radius is the marginal case and names the upgrade path.** Its tolerance
+   (0.47 mm/s, ADR 0011) sits *at* the honest-q claimed σ (0.66 mm/s fails it; the 3e-5
+   crossover's 0.40 mm/s grazes it). If plate-scale hand-off ever tightens to ~100 m, the
+   lever is **third-body in the onboard filter dynamics** (recovering ~2 orders of q), not
+   better sensors — recorded for C2/C3, consistent with decision 6's "Q absorbs the gap"
+   stance holding only down to the km-scale radii C0 actually requires.
+
+6. **Mechanics that held up**: the equatorial pure reference vs the 28.5°-inclined truth
+   orientation is immaterial (everything is judged in RTN — pinned by integration test);
+   truth arcs cache per cadence; the full default report (Φ + sweep + 2 validations) runs in
+   ~4 min wall.
