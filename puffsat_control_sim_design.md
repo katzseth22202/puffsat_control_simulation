@@ -408,6 +408,34 @@ Decomposed 2026-06-09 (ADR 0010). Rung C drops the perfect-state assumption and 
 
 Order: C0 → C1 → C2 → C3 (C3a → C3b) → C4. The big Monte Carlo *distribution* (and MPC) are Rung D; the optimistic real-shape comparison is Rung E.
 
+### Implementation queue (consolidated 2026-06-11)
+
+One checklist for what remains; the named ADRs hold the authoritative specs — this list only
+points. Everything above C3a is **done and unaffected** by the ADR 0015/0016 respec (both ADRs
+state the measured A/B/C0–C2a results stand; the gate is green as of this entry).
+
+- [ ] **C3a (= B3b)** — fixed-step Cowell terminal arc, equivalence-pinned vs the proven
+  adaptive-30 s config on an unburned descent; execute the B3a feedforward as a real burn
+  (ADR 0014).
+- [ ] **C3b** — ZEM closed loop under dispersed drag; σ_rel re-keyed to **σ_rel(R) = σ_θ·R**,
+  σ_θ ∈ {2, 10, 50 µrad} + the constant 1 m ADR 0014 continuity point; new pure
+  **plate-frame miss summarizer** (2D lateral ⊥ v_rel + ToA) and capture-vs-plate-radius
+  curve (ADR 0014, 0015).
+- [ ] **C3c** — thrust-authority + MCC-2 cost curves with the kept A2 solver; MCC-2 sized
+  against the *independent* tail only (ADR 0014, 0016).
+- [ ] **C4** — dead-time budget table + τ-sweep on the C3b loop; optional measurement-dropout
+  knob for scheduled plume gating (ADR 0014, 0015).
+- [ ] **Rung D** — MC distribution with **train mode**: `DispersionSpec` shared-vs-per-unit
+  axis designation, `sample_run_inputs` split into per-train/per-unit draws; deliverables =
+  centroid-drift distribution (vs the ±2 km retarget spec) + scatter about the centroid
+  (vs plate capture); headline **P(capture)**; σ_θ a sampled axis; offset correlation
+  structure reported for the torque ledger; MPC measured against the C baseline; LinCov as
+  screen/control-variate (ADR 0012, 0015, 0016).
+- **Parked, build only on consumption:** C2b LinCov `σ_Cr(t)` (ADR 0013); Rung E cylinder
+  comparison (ADR 0009).
+- **Retired, do not schedule:** 5 cm centering; `rel_tol` 1e-13 / Encke study;
+  relativity-in-filter (ADR 0015).
+
 ---
 
 ## 14. Engineering practices
