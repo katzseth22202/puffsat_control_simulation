@@ -138,6 +138,18 @@ hits the C0 threshold; the paper consumes it as a sizing result, the sim never a
 fixed constellation. _Avoid_: ground station (nodes are not Earth-fixed), beacon alone
 (loses the compute/latency role C4 prices).
 
+**Transponder (PuffSat RF link)**:
+The PuffSat's only RF nav hardware — a few-gram omni **coherent turnaround**
+(receive-mix-amplify MMIC + patch antenna, mW): it phase-locks to the interrogating
+carrier and re-transmits at a fixed ratio, so two-way range/Doppler precision is bound
+by the *interrogator's* OCXO and **the PuffSat carries no precision clock** (ADR 0011
+§7, ADR 0012 §3). A ~1 g TCXO (no oven, no temperature control) covers local mixing
+and ToA holdover between contacts; two-way time transfer resyncs every interrogation.
+Chosen over a passive retroreflector for midcourse: 1/R² per leg vs 1/R⁴, and
+multilateration needs simultaneous omni visibility. _Avoid_: "homing beacon"
+(overloaded — see Flagged ambiguities); one-way beacon designs (those are what would
+need an onboard precision clock).
+
 **ControlAction / ControlPlan**:
 Pure value types in `control.py`. A **ControlAction** is one commanded maneuver (node
 + RTN Δv + magnitude); a **ControlPlan** is the ordered actions a **Controller**
@@ -219,6 +231,18 @@ sampling distribution.
   docstring mislabels itself "Rung A truth model"; design-doc Rung A is the
   impulsive-Δv controllability core, not truth propagation. Resolution:
   **Presets are named by content, never by rung.**
+
+- **"Homing beacon" overloaded (resolved 2026-06-11, no architecture change).** Two
+  distinct hardware roles hide under the phrase: the **Transponder** (RF, clock-free,
+  midcourse range/Doppler + ToA/time transfer — ADR 0011/0012) and the terminal
+  **optical beacon** (the point source ADR 0015's astrometric tracker centroids; a
+  light source, no clock). A "go back to retroreflective tape" proposal was examined
+  and dropped: the motivating clock worry was unfounded (the two-way coherent link
+  keeps all precision timing on the interrogator; one-way designs are what would need
+  a CSAC-class onboard clock — that is why TDOA was never adopted), and ADR 0011 had
+  already rejected the retroreflector for midcourse on 1/R² vs 1/R⁴. Residual idea,
+  noted not adopted: a corner-cube LRA (~10 g, passive) as a dead-PuffSat
+  safety/debris-verification tracker — a paper-side option, no sim impact.
 
 - **Perigee as target vs diagnostic (resolved).** The design doc's A1 wording says
   the corrector nulls "predicted perigee error," but perigee is a *diagnostic*
