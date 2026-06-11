@@ -4,7 +4,11 @@ import math
 
 import pytest
 
-from puffsat_sim.terminal import plan_feedforward
+from puffsat_sim.terminal import (
+    TerminalFeedforwardFinding,
+    format_terminal_feedforward,
+    plan_feedforward,
+)
 
 
 def test_zoh_holds_the_sample_at_or_last_before_each_control_tick() -> None:
@@ -95,3 +99,69 @@ def test_constant_drag_profile_becomes_one_zoh_command_per_control_step() -> Non
         assert cmd.duration_s == 1.0
         assert cmd.thrust_n == 25.0 * 0.01
         assert cmd.direction == (1.0, 0.0, 0.0)  # thrust opposes the drag acceleration
+
+
+def _finding(
+    plan_accel: float = 0.0005,
+    drag_displacement_m: float = 2.0,
+    executed_residual_m: float = 0.5,
+    slew_deg_per_step: float = 0.0,
+) -> TerminalFeedforwardFinding:
+    times = [float(t) for t in range(5)]
+    accel = [
+        (
+            -plan_accel * math.cos(math.radians(slew_deg_per_step * k)),
+            -plan_accel * math.sin(math.radians(slew_deg_per_step * k)),
+            0.0,
+        )
+        for k in range(5)
+    ]
+    return TerminalFeedforwardFinding(
+        plan=plan_feedforward(times, accel, mass_kg=25.0, control_period_s=1.0),
+        equivalence_pin_m=0.003,
+        equivalence_pin_toa_s=1e-5,
+        drag_displacement_m=drag_displacement_m,
+        executed_residual_m=executed_residual_m,
+        executed_residual_toa_s=2e-5,
+    )
+
+
+def test_format_passes_both_actuator_gates_for_a_weak_smooth_plan() -> None:
+    """Under-cap thrust and zero slew clear the ADR 0004 gates."""
+    out = format_terminal_feedforward(_finding())
+    assert out.count("PASS") == 2
+    assert "FAIL" not in out
+
+
+def test_format_fails_the_thrust_gate_when_the_plan_saturates() -> None:
+    """A saturated plan means the actuator cannot match drag — the thrust gate must FAIL."""
+    out = format_terminal_feedforward(_finding(plan_accel=1.0))
+    assert "FAIL" in out
+    assert "saturated" in out
+
+
+def test_format_fails_the_slew_gate_when_direction_turns_faster_than_the_loop() -> None:
+    """A commanded direction sweeping 2 °/s exceeds the ~1 °/s actuator loop."""
+    out = format_terminal_feedforward(_finding(slew_deg_per_step=2.0))
+    assert "FAIL" in out
+
+
+def test_format_reports_the_rejection_ratio_and_the_pin() -> None:
+    """The headline numbers: equivalence pin, displacement vs residual, rejection factor."""
+    out = format_terminal_feedforward(_finding(drag_displacement_m=2.0, executed_residual_m=0.5))
+    assert "4.0×" in out
+    assert "0.003" in out  # the fixed-vs-adaptive pin distance
+
+
+def test_format_reports_propellant_within_the_2_percent_budget() -> None:
+    """The tiny anti-drag Δv sits far under the <2 % line at every Isp anchor."""
+    out = format_terminal_feedforward(_finding())
+    assert "within 2%" in out
+
+
+def test_plan_peak_thrust_is_the_largest_command() -> None:
+    """The gate reads the largest commanded thrust, post-cap."""
+    times = [0.0, 1.0, 2.0]
+    accel = [(-0.001, 0.0, 0.0), (-0.002, 0.0, 0.0), (-0.002, 0.0, 0.0)]
+    plan = plan_feedforward(times, accel, mass_kg=25.0, control_period_s=1.0)
+    assert plan.peak_thrust_n == pytest.approx(25.0 * 0.002)
