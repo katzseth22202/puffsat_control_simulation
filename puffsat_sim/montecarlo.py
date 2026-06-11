@@ -12,6 +12,7 @@ supplies a controller through the same hook (§14.1).  Per-run replay (§14.2):
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -89,7 +90,16 @@ from puffsat_sim.navigation import (
     summarize_nav_requirement,
 )
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
-from puffsat_sim.propagator import build_propagator, build_propagator_from_orbit
+from puffsat_sim.propagator import (
+    build_fixed_step_propagator_from_orbit,
+    build_propagator,
+    build_propagator_from_orbit,
+)
+from puffsat_sim.terminal import (
+    TerminalFeedforwardFinding,
+    format_terminal_feedforward,
+    plan_feedforward,
+)
 from puffsat_sim.records import EnsembleResult, RunRecord
 from puffsat_sim.sink import append_record, plan_resume, read_records
 from puffsat_sim.sweep import SweepResult, SweepSpec, grid_inputs
@@ -102,9 +112,9 @@ from puffsat_sim.sweep import SweepResult, SweepSpec, grid_inputs
 # so hand off at an altitude event: coast on the big adaptive step, then descend the last
 # leg on a tight cap.  The terminal cap matches the old 30 s global cap (proven safe),
 # while the coast runs at 600 s — recovering the coast tax.  Nominal and perturbed runs
-# share this path so the interception miss stays common-mode.  A *fixed-step* Cowell
-# terminal phase is deferred to B3, where the continuous burn is its first consumer; the
-# terminal phase here stays adaptive.
+# share this path so the interception miss stays common-mode.  The *fixed-step* Cowell
+# terminal phase exists for the executed C3a burn (run_terminal_feedforward, ADR 0014);
+# the dispersion path here stays adaptive.
 _COAST_MAX_STEP_S: float = 600.0
 _HANDOFF_ALT_M: float = 800_000.0  # §6.3 drag-on guard band
 _TERMINAL_MAX_STEP_S: float = 30.0
@@ -256,7 +266,7 @@ def instrument_anti_drag(
     Feedforward cost baseline (ADR 0008/0009, perfect knowledge): descend the nominal trajectory,
     sample the truth drag acceleration through the 600 → 200 km window, and report what an
     anti-drag burn must deliver (Δv, peak thrust, peak direction-slew) — measured, not executed
-    (the executed/closed-loop burn and the fixed-step terminal phase are deferred to C/D).  Drag
+    (the executed burn is C3a's :func:`run_terminal_feedforward`; the closed loop is C3b).  Drag
     is evaluated at the propagator's 1 kg, which yields the real a_drag directly (the lumped
     Cd·(A/m) is the real coefficient, ADR 0009); peak thrust then scales by the real ``mass_kg``.
     """
@@ -282,10 +292,29 @@ def instrument_anti_drag(
     end_state = terminal.propagate(epoch.shiftedBy(period))
     ephemeris = generator.getGeneratedEphemeris()
 
+    times, accels = _sample_drag_window(
+        ephemeris, handoff_state.getDate(), end_state.getDate(), physics, earth, epoch, sample_dt_s
+    )
+    return summarize_anti_drag(times, accels, mass_kg)
+
+
+def _sample_drag_window(
+    ephemeris: Any,
+    start: Any,
+    end: Any,
+    physics: PhysicsConfig,
+    earth: Any,
+    epoch: Any,
+    sample_dt_s: float,
+) -> tuple[list[float], list[Vec3]]:
+    """Sample the truth drag acceleration through the 600 → 200 km window (§13 B3).
+
+    Times are seconds from ``epoch`` (the apogee deployment date), so they line up with
+    the dates the executed maneuver segments are anchored to.
+    """
     drag_force = _drag_force_model(physics, Environment.build())
     params = drag_force.getParameters()
-    start = handoff_state.getDate()
-    span = float(end_state.getDate().durationFrom(start))
+    span = float(end.durationFrom(start))
 
     times: list[float] = []
     accels: list[Vec3] = []
@@ -300,8 +329,121 @@ def instrument_anti_drag(
         accel = drag_force.acceleration(state, params)
         times.append(float(date.durationFrom(epoch)))
         accels.append((float(accel.getX()), float(accel.getY()), float(accel.getZ())))
+    return times, accels
 
-    return summarize_anti_drag(times, accels, mass_kg)
+
+# C3a fixed-step terminal (ADR 0014 decision 4): the integrator step equals the control
+# period, so every zero-order-hold command boundary lands exactly on the integrator grid.
+_TERMINAL_FIXED_STEP_S: float = 1.0
+
+
+def _physics_without_drag(physics: PhysicsConfig) -> PhysicsConfig:
+    """The same force model with the drag perturbation removed (the C3a drag-free reference)."""
+    return PhysicsConfig(
+        tuple(p for p in physics.perturbations if not isinstance(p, AtmosphericDrag))
+    )
+
+
+def run_terminal_feedforward(
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    control_period_s: float = _TERMINAL_FIXED_STEP_S,
+    step_s: float = _TERMINAL_FIXED_STEP_S,
+    sample_dt_s: float = 1.0,
+) -> TerminalFeedforwardFinding:
+    """Execute B3a's anti-drag feedforward as a real ZOH burn on the fixed-step terminal (C3a).
+
+    ADR 0014 decisions 4/6, in order: (1) descend the unburned terminal leg from the 800 km
+    hand-off on both the proven adaptive-30 s config and the fixed-step Cowell — their
+    crossing separation is the equivalence pin, measured before any burn; (2) sample the
+    truth drag profile on the unburned fixed-step descent and ZOH-plan it
+    (:func:`puffsat_sim.terminal.plan_feedforward`, real units: 25 kg, 400 mN cap);
+    (3) re-descend the same hand-off state with the commands attached as finite maneuver
+    segments, thrust scaled to the 1 kg propagator mass at the sentinel Isp as in B1.
+    The drag-free descent of the same hand-off state is the reference: the unburned
+    distance to it is the drag displacement (the disease), the burned distance is the
+    executed residual (what the open-loop feedforward leaves for C3b's feedback).
+    """
+    physics = presets.full_force()
+    earth = _earth()
+    epoch = _to_absolute_date(orbital_config.epoch)
+    semi_major, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
+    period = keplerian_period(semi_major)
+    frame = FramesFactory.getEME2000()
+
+    apogee_orbit = (
+        build_propagator(orbital_config, physics, _COAST_MAX_STEP_S).getInitialState().getOrbit()
+    )
+    coast = build_propagator_from_orbit(apogee_orbit, physics, _COAST_MAX_STEP_S)
+    handoff = _coast_to_handoff(coast, epoch, period, earth)
+
+    adaptive = _propagate_to_interception(
+        build_propagator_from_orbit(handoff.getOrbit(), physics, _TERMINAL_MAX_STEP_S),
+        epoch,
+        period,
+        earth,
+    )
+
+    fixed_prop = build_fixed_step_propagator_from_orbit(handoff.getOrbit(), physics, step_s)
+    generator = fixed_prop.getEphemerisGenerator()
+    unburned = _propagate_to_interception(fixed_prop, epoch, period, earth)
+    ephemeris = generator.getGeneratedEphemeris()
+
+    dragfree = _propagate_to_interception(
+        build_fixed_step_propagator_from_orbit(
+            handoff.getOrbit(), _physics_without_drag(physics), step_s
+        ),
+        epoch,
+        period,
+        earth,
+    )
+
+    times, accels = _sample_drag_window(
+        ephemeris,
+        handoff.getDate(),
+        epoch.shiftedBy(unburned.toa_s),
+        physics,
+        earth,
+        epoch,
+        sample_dt_s,
+    )
+    plan = plan_feedforward(
+        times, accels, mass_kg=_PUFFSAT_WET_MASS_KG, control_period_s=control_period_s
+    )
+
+    burned_prop = build_fixed_step_propagator_from_orbit(handoff.getOrbit(), physics, step_s)
+    for cmd in plan.commands:
+        if cmd.thrust_n <= 0.0:
+            continue
+        burned_prop.addForceModel(
+            ConstantThrustManeuver(
+                epoch.shiftedBy(cmd.start_s),
+                cmd.duration_s,
+                cmd.thrust_n * _PROPAGATOR_MASS_KG / _PUFFSAT_WET_MASS_KG,
+                _BURN_ISP_SENTINEL_S,
+                FrameAlignedProvider(frame),
+                Vector3D(cmd.direction[0], cmd.direction[1], cmd.direction[2]),
+            )
+        )
+    burned = _propagate_to_interception(burned_prop, epoch, period, earth)
+
+    return TerminalFeedforwardFinding(
+        plan=plan,
+        equivalence_pin_m=math.dist(unburned.position_m, adaptive.position_m),
+        equivalence_pin_toa_s=unburned.toa_s - adaptive.toa_s,
+        drag_displacement_m=math.dist(unburned.position_m, dragfree.position_m),
+        executed_residual_m=math.dist(burned.position_m, dragfree.position_m),
+        executed_residual_toa_s=burned.toa_s - dragfree.toa_s,
+    )
+
+
+def terminal_feedforward_report(
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    control_period_s: float = _TERMINAL_FIXED_STEP_S,
+) -> str:
+    """Run the C3a executed-feedforward measurement and format the one-screen report."""
+    return format_terminal_feedforward(
+        run_terminal_feedforward(orbital_config, control_period_s=control_period_s)
+    )
 
 
 def _apogee_state(orbital_config: OrbitalConfig) -> tuple[Any, Any, Any]:

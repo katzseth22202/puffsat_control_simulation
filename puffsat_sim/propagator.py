@@ -11,7 +11,7 @@ from typing import Any, Final
 
 import puffsat_sim.jvm  # noqa: F401  boots the JVM before any org.orekit import
 
-from org.hipparchus.ode.nonstiff import DormandPrince853Integrator
+from org.hipparchus.ode.nonstiff import ClassicalRungeKuttaIntegrator, DormandPrince853Integrator
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import KeplerianOrbit, OrbitType, PositionAngleType
 from org.orekit.propagation import SpacecraftState
@@ -51,8 +51,8 @@ def build_propagator(
     max_step_s caps the adaptive integrator step. The Monte Carlo harness regime-switches
     the descent (B0, ADR 0008): a 600 s coast hands off at 800 km to a 30 s terminal phase,
     so no integration stage oversteps the 200 km event below the surface (the §6.2
-    fragility). A fixed-step terminal phase is deferred to B3, where the continuous burn
-    needs the deterministic control-clock cadence.
+    fragility). The fixed-step Cowell terminal phase the continuous burn needs is
+    :func:`build_fixed_step_propagator_from_orbit` (C3a, ADR 0014).
 
     orbital_config.epoch must be a whole-second UTC datetime.
     """
@@ -107,13 +107,33 @@ def _build_numerical_propagator(
     propagator = NumericalPropagator(integrator)
     propagator.setOrbitType(OrbitType.KEPLERIAN)
     propagator.setPositionAngleType(PositionAngleType.MEAN)
+    _init_state_and_forces(propagator, orbit, physics_config)
+    return propagator
+
+
+def build_fixed_step_propagator_from_orbit(
+    orbit: Any, physics_config: PhysicsConfig, step_s: float
+) -> Any:
+    """Fixed-step Cowell propagator for the terminal phase (§6.2, ADR 0014 decision 4).
+
+    Classical RK4 at a constant ``step_s`` over Cartesian coordinates — the deterministic
+    control-clock integrator the continuous terminal burn requires (the step must be ≤ the
+    control period so every zero-order-hold command boundary lands on the integrator grid).
+    Equivalence-pinned against the adaptive-30 s terminal config on an unburned descent
+    before any burn is attached (the C3a report measures the pin).
+    """
+    integrator = ClassicalRungeKuttaIntegrator(float(step_s))
+    propagator = NumericalPropagator(integrator)
+    propagator.setOrbitType(OrbitType.CARTESIAN)
+    _init_state_and_forces(propagator, orbit, physics_config)
+    return propagator
+
+
+def _init_state_and_forces(propagator: Any, orbit: Any, physics_config: PhysicsConfig) -> None:
     # mass=1.0 kg so that the lumped Cr·(A/m) and Cd·(A/m) are used directly as
     # effective cross-sections — the physical Cr/Cd are already folded into them.
     propagator.setInitialState(SpacecraftState(orbit, 1.0))
-
     env = Environment.build()
     for perturbation in physics_config.perturbations:
         for force_model in to_force_models(perturbation, env):
             propagator.addForceModel(force_model)
-
-    return propagator
