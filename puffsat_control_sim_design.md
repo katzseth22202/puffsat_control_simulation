@@ -447,6 +447,7 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
 2. **Seed per run, replayable.** Any ensemble run (including a failing run #7,432 at N=10^4) must replay in single-trajectory mode from its seed, with dense logging. Single-trajectory and Monte Carlo share one draw mechanism.
 3. **Mode-dependent logging.** Single runs: full 100 Hz state + covariance + residuals + event log + commanded/applied Δv. Big MC: per-run summary only (perigee achieved, miss, propellant, pass/fail, seed) or storage drowns.
 4. **Apogee as a tunable parameter** (Section 3), so the dispersion-vs-apogee trade is a sweep, not a recompile.
+5. **One slice, one module — on both sides of the master seam (ADR 0017).** A module is split when more than one ADR owns it (its CLAUDE.md entry is the test; logic lines are the secondary tripwire — suspicious ~400, act by ~600), and the cut must land on a Seam (CONTEXT.md): ownership says *when*, seams say *where*. JVM-side glue mirrors the pure slice modules in `puffsat_sim/runs/`. Functions: suspicious at ~50 branching logic lines (~80 for linear recipes); ≥3 default-off behavior knobs is the hard tripwire — bundle into a value object (`RunVariant` precedent).
 
 ---
 

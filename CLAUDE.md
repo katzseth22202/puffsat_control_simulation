@@ -153,6 +153,12 @@ download_orekit_data_curdir()   # downloads to current directory
   directory when they exist.
 - `# type: ignore[import-untyped]` on orekit imports — do not silence other mypy
   errors with bare `# type: ignore`.
+- God-file/function tripwires (ADR 0017, design doc §14.5): a module with more than
+  one owning ADR in its CLAUDE.md entry gets split (lines secondary: suspicious ~400
+  logic, act ~600); cut on Seams (CONTEXT.md) — ownership says when, seams say where.
+  JVM glue mirrors pure slices in `puffsat_sim/runs/`. Functions: suspicious ~50
+  branching logic lines (~80 linear recipes); ≥3 default-off behavior knobs → bundle
+  into a value object.
 
 ## Environment
 

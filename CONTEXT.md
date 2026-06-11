@@ -6,6 +6,19 @@ See `puffsat_control_sim_design.md` for the physics/control specification.
 
 ## Language
 
+**Seam**:
+A boundary where one side can be exercised or substituted without the other (the
+testing sense). The master seam is **pure vs JVM** — every pure module unit-tests
+without booting Orekit; others include **Predict vs Execute**, the `control=` hook,
+the **Actuator**'s commanded→applied map, and the **Resume sink**. Decomposition
+rule (2026-06-11): *ownership* says **when** to split a file — more than one owning
+ADR in its CLAUDE.md entry means more than one reason to change (line counts are the
+secondary tripwire: suspicious ~400 logic lines, act by ~600 even single-owner) —
+and seams say **where** to cut: a module interface must sit on a substitution
+boundary; a cut that crosses a seam is wrong even if it shrinks files.
+_Avoid_: "seam" for mere file cohesion (a single-owner slice is a slice, not
+necessarily a seam).
+
 **Perturbation**:
 A force acting on the PuffSat beyond Earth two-body gravity, represented as a
 small frozen pure-Python spec (`Geopotential`, `ThirdBody`, `SolarRadiation`,
