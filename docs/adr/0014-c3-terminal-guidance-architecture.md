@@ -138,3 +138,41 @@ Two more grill findings reshaped the sensing and the goal:
 - C4's τ-sweep rides on C3b's loop as specced; the swept control cadence here feeds it.
 - Rung D inherits: trim scheduling (threshold vs always), the measured catch radius as
   the saturation boundary in the MC, and σ_rel as a sampled axis.
+
+## Implementation findings — C3a (2026-06-11)
+
+C3a is built and measured (`puffsat_sim/terminal.py` pure planner + report,
+`build_fixed_step_propagator_from_orbit` in `propagator.py`,
+`run_terminal_feedforward` / `terminal_feedforward_report` in `montecarlo.py`;
+integration test `tests/integration/test_terminal_feedforward.py`).  Nominal run
+(1 Hz control clock, 1 s fixed step, ~25 s wall):
+
+- **Equivalence pin (decision 4): 5.5 mm, ToA < 1 µs.**  The fixed-step Cowell
+  (classical RK4, Cartesian, 1 s) reproduces the proven adaptive-30 s unburned descent
+  from the 800 km hand-off to the crossing at the integrator-floor scale — five orders
+  under the 400 m working radius.  The terminal integrator swap is settled.
+- **Drag displacement at the crossing is 8.5 cm — ~20× under this ADR's ~1–2 m
+  estimate.**  The naive bound (0.015 m/s × ~100 s) overcounts: drag is concentrated in
+  the final seconds before the crossing, where the accumulated Δv has almost no time to
+  integrate into position.  Terminal drag rejection is a *centimeters*-at-the-crossing
+  problem, which further de-stresses the C3b feedback's share of the 1 m endpoint.
+- **Executed residual 2 mm → rejection ~45×.**  The open-loop ZOH burn (180 one-second
+  commands, drag known) cancels the displacement to below the equivalence pin itself.
+  B3a's measured-only profile survives execution end-to-end: ZOH quantization,
+  command-boundary alignment, and the 800→600 km uncompensated band are all sub-pin.
+- **Plan ≈ B3a's profile: Δv 0.0145 m/s (B3a trapezoid: 0.015), peak thrust 15.96 mN
+  (B3a: 16.7), peak slew 0.048 °/s.**  Both ADR 0004 gates PASS on the *executed* burn
+  (B3a only measured the demand); the small deficits are the hold-at-tick ZOH reading a
+  steeply rising profile, exactly the expected direction.  Propellant 0.0030 % of wet
+  mass at the conservative Isp 50 anchor — invisible against the 2 % line.
+- **Mass-depletion stays the B1 sentinel-Isp convention.**  ADR 0008 deferred real
+  depletion to "B3's large anti-drag burn"; B3a/C3a falsified the premise (the burn is
+  ~1.5 g, 0.006 % of wet mass), so constant-mass execution + pure Tsiolkovsky transform
+  remains exact to ~6e-5.
+- Planner detail that mattered: the descent's final sub-period step carries a
+  disproportionate share of the impulse (exponential drag rise), so the plan holds the
+  last command to the end of the span instead of truncating at the last full tick.
+
+C3b inherits: the fixed-step terminal + maneuver-segment machinery as-is; the measured
+8.5 cm/2 mm scale as the drag-feedforward floor under the ZEM loop; the 1 Hz cadence as
+the validated center of the {0.1, 1, 10} Hz sweep.
