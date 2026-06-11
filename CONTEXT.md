@@ -138,6 +138,25 @@ hits the C0 threshold; the paper consumes it as a sizing result, the sim never a
 fixed constellation. _Avoid_: ground station (nodes are not Earth-fixed), beacon alone
 (loses the compute/latency role C4 prices).
 
+**Train**:
+The time-ordered sequence of PuffSat arrivals at the interception point (~1 s spacing,
+minutes-long span). PuffSats never station-keep — each flies an independent orbit
+(design doc §2 keeps fleet interactions out of scope); the train exists only as the
+arrival schedule the target plane flies through. ADR 0015's accuracy criterion
+(σ ≤ 1.65 m vs the 5 m plate, ToA ≤ 10 ms) is judged per PuffSat **about the train
+centroid** (ADR 0016). _Avoid_: formation (implies station-keeping / relative control
+that does not exist).
+
+**Centroid retarget**:
+The target plane's absorption of common-mode **Train** drift: coordinator tracking
+reveals the actual arrival corridor days before launch (ADR 0006's observable drift),
+and the plane aims there via launch-time/azimuth adjustment — ±~2 km declared
+capability (≈5 s of window slip; Earth rotation gives ~460 m/s of aim per second).
+It cannot chase per-PuffSat scatter (~0.1–0.5 m of repositioning per 1 s arrival gap),
+so independent scatter stays with each PuffSat's terminal burn (the catch radius), and
+MCC-2 re-scopes to independent tails (ADR 0016). _Avoid_: "the plane flies to meet the
+PuffSat" (true at centroid scale only, never per-PuffSat).
+
 **Transponder (PuffSat RF link)**:
 The PuffSat's only RF nav hardware — a few-gram omni **coherent turnaround**
 (receive-mix-amplify MMIC + patch antenna, mW): it phase-locks to the interrogating
