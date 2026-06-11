@@ -49,9 +49,12 @@ def plan_feedforward(
 ) -> FeedforwardPlan:
     """Hold the sampled drag profile over each control step as an opposing thrust command.
 
-    Each command starts on a control-clock tick, lasts one control period, and carries the
-    thrust ``mass·|a_drag|`` anti-parallel to the drag sampled at (or last before) the tick
-    — the zero-order hold of the B3a profile — saturated at the actuator's ``max_thrust_n``.
+    Each command starts on a control-clock tick and carries the thrust ``mass·|a_drag|``
+    anti-parallel to the drag sampled at (or last before) the tick — the zero-order hold
+    of the B3a profile — saturated at the actuator's ``max_thrust_n``.  The actuator holds
+    the final tick's command until the end of the span, so the last command may be shorter
+    than a control period (drag peaks there on a descent; dropping the tail would
+    under-deliver the feedforward where it matters most).
     """
     accel = np.asarray(drag_accel_m_s2, dtype=np.float64).reshape(-1, 3)
     times = np.asarray(times_s, dtype=np.float64)
@@ -60,21 +63,24 @@ def plan_feedforward(
     saturated = False
     start = float(times[0])
     span = float(times[-1] - times[0])
-    steps = int(span / control_period_s)
+    # The -1e-9 keeps float noise in an exact multiple from spawning a ~zero-length step.
+    steps = math.ceil(span / control_period_s - 1e-9)
+    direction: Vec3 = (1.0, 0.0, 0.0)
     for k in range(steps):
         tick = start + k * control_period_s
         sample = int(np.searchsorted(times, tick, side="right")) - 1
         mag = float(np.linalg.norm(accel[sample]))
-        direction: Vec3 = (
-            float(-accel[sample][0] / mag),
-            float(-accel[sample][1] / mag),
-            float(-accel[sample][2] / mag),
-        )
+        if mag > 0.0:
+            direction = (
+                float(-accel[sample][0] / mag),
+                float(-accel[sample][1] / mag),
+                float(-accel[sample][2] / mag),
+            )
         saturated = saturated or mass_kg * mag > max_thrust_n
         commands.append(
             ThrustCommand(
                 start_s=tick,
-                duration_s=control_period_s,
+                duration_s=min(control_period_s, start + span - tick),
                 thrust_n=min(mass_kg * mag, max_thrust_n),
                 direction=direction,
             )

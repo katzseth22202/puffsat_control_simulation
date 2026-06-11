@@ -64,6 +64,26 @@ def test_near_zero_commands_do_not_register_spurious_slew() -> None:
     assert plan.peak_slew_rate_deg_s == pytest.approx(0.5, rel=1e-6)
 
 
+def test_trailing_partial_step_is_covered_by_a_short_final_command() -> None:
+    """The actuator holds the last tick's command until the crossing; the sub-period tail
+    (where drag peaks on a descent) must not be silently dropped from the plan."""
+    times = [0.0, 1.0, 2.0, 2.5]
+    accel = [(-0.01, 0.0, 0.0)] * 4
+    plan = plan_feedforward(times, accel, mass_kg=25.0, control_period_s=1.0)
+    assert [cmd.start_s for cmd in plan.commands] == [0.0, 1.0, 2.0]
+    assert plan.commands[-1].duration_s == pytest.approx(0.5)
+    assert plan.dv_m_s == pytest.approx(0.01 * 2.5)
+
+
+def test_zero_drag_step_commands_zero_thrust_with_a_finite_direction() -> None:
+    """An exactly-zero drag sample means engine off for that step — never a NaN direction."""
+    times = [0.0, 1.0, 2.0]
+    accel = [(0.0, 0.0, 0.0), (-0.01, 0.0, 0.0), (-0.01, 0.0, 0.0)]
+    plan = plan_feedforward(times, accel, mass_kg=25.0, control_period_s=1.0)
+    assert plan.commands[0].thrust_n == 0.0
+    assert all(math.isfinite(c) for c in plan.commands[0].direction)
+
+
 def test_constant_drag_profile_becomes_one_zoh_command_per_control_step() -> None:
     """A constant drag profile turns into per-step commands opposing drag at m·|a|."""
     times = [0.0, 1.0, 2.0, 3.0]
