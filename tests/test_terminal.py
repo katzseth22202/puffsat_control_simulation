@@ -165,3 +165,19 @@ def test_plan_peak_thrust_is_the_largest_command() -> None:
     accel = [(-0.001, 0.0, 0.0), (-0.002, 0.0, 0.0), (-0.002, 0.0, 0.0)]
     plan = plan_feedforward(times, accel, mass_kg=25.0, control_period_s=1.0)
     assert plan.peak_thrust_n == pytest.approx(25.0 * 0.002)
+
+
+def test_executed_plan_summarizes_a_command_history() -> None:
+    """The C3b loop assembles its executed ZOH history into the same plan value type."""
+    from puffsat_sim.terminal import ThrustCommand, executed_plan
+
+    commands = (
+        ThrustCommand(start_s=0.0, duration_s=1.0, thrust_n=0.25, direction=(1.0, 0.0, 0.0)),
+        ThrustCommand(start_s=1.0, duration_s=1.0, thrust_n=0.4, direction=(0.0, 1.0, 0.0)),
+    )
+    plan = executed_plan(commands, mass_kg=25.0, saturated=True)
+
+    assert plan.dv_m_s == pytest.approx((0.25 + 0.4) / 25.0)
+    assert plan.peak_thrust_n == 0.4
+    assert plan.saturated
+    assert plan.peak_slew_rate_deg_s == pytest.approx(90.0)

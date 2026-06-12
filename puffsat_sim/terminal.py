@@ -101,6 +101,24 @@ def plan_feedforward(
     )
 
 
+def executed_plan(
+    commands: Sequence[ThrustCommand], mass_kg: float, saturated: bool
+) -> FeedforwardPlan:
+    """Summarize an executed ZOH command history into the plan value type.
+
+    The C3b closed loop builds its history tick by tick (saturation is judged per tick
+    by the commander, so it is passed in rather than re-derived); the gates and the
+    propellant ledger then read it exactly as they read a C3a plan.
+    """
+    return FeedforwardPlan(
+        commands=tuple(commands),
+        dv_m_s=sum(cmd.thrust_n / mass_kg * cmd.duration_s for cmd in commands),
+        mass_kg=mass_kg,
+        saturated=saturated,
+        peak_slew_rate_deg_s=_peak_slew_rate_deg_s(tuple(commands)),
+    )
+
+
 # Below this fraction of the plan's peak thrust the commanded direction is numerical
 # noise (negligible drag), so direction changes there must not gate the slew rate.
 _NEGLIGIBLE_THRUST_FRACTION: float = 1e-6

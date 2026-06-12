@@ -23,6 +23,7 @@ from puffsat_sim.dispersion import Vec3
 # Actuator limits the B3a feasibility check is read against (ADR 0004 / paper §13).
 PEAK_THRUST_LIMIT_N: float = 0.4  # 400 mN cold-gas max
 PEAK_SLEW_LIMIT_DEG_S: float = 1.0  # direction-loop rate limit
+THRUST_FLOOR_N: float = 0.005  # proportional floor; smaller demands are engine-off
 
 
 @dataclass(frozen=True)
