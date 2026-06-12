@@ -176,3 +176,69 @@ integration test `tests/integration/test_terminal_feedforward.py`).  Nominal run
 C3b inherits: the fixed-step terminal + maneuver-segment machinery as-is; the measured
 8.5 cm/2 mm scale as the drag-feedforward floor under the ZEM loop; the 1 Hz cadence as
 the validated center of the {0.1, 1, 10} Hz sweep.
+
+## Implementation findings — C3b (2026-06-12)
+
+C3b is built and measured (`puffsat_sim/guidance.py` pure ZEM/noise/plate-frame core,
+`puffsat_sim/runs/guidance.py` tick-by-tick closed loop + one-axis sweep; integration
+test `tests/integration/test_run_guidance.py`).  Sweep: ~60 closed-loop descents from
+the 800 km hand-off over one shared context, seeds fixed, 1 Hz nominal clock; the aim
+point is the drag-free nominal crossing.
+
+- **Measured catch radius: 500 m — the 400 m working re-baseline (decision 1) holds
+  with margin.**  Noiseless lateral entry offsets land capture-grade through 500 m
+  (residual 3 mm at 91 % tick saturation) and collapse at 600 m (95 m miss, 100 %
+  saturated): a clean thrust-authority cliff at the Δv ceiling a_max·t_terminal ≈
+  0.016 × 246 s ≈ 3.94 m/s, bracketing the ½·a_max·t² ≈ 480 m isotropic estimate.
+  Inside the radius the residual *falls* with offset (0.136 m at zero entry → 3 mm at
+  500 m): large entries keep the demand above the 5 mN proportional floor and the
+  significance gate so the loop tracks continuously, while the zero-entry leftover is
+  onboard-model bias (two-body+J2 predictor, re-predicted each tick) plus floor
+  deadband — not authority.
+- **The nominal 10 µrad tracker grade is capture-grade: RMS 1.07 m, max 2.70 m over 8
+  seeds (requirement σ ≤ 1.65 m; closed-form floor 2σ_θ²v²/a_max = 1.45 m).**  50 µrad
+  reads RMS 3.68 m / capture 88 % — fails the 99 % line, so the grade requirement
+  genuinely binds between 10 and 50 µrad; ADR 0015's σ_θ ≤ 10 µrad spec is the
+  validated knee.  The measured curve is much flatter than the σ² floor: fine grades
+  bottom out on the model-bias/deadband floors (0.58 m at 2 µrad vs 0.06 m floor),
+  coarse grades under-run the floor by refusing to act (3.7 m vs 36 m at 50 µrad),
+  paying in capture tail instead.  The constant 1 m grade reads 0.53 m, consistent.
+  ToA errors ≤ 0.06 ms RMS everywhere — two orders inside ADR 0015's 10 ms window;
+  arrival timing is a non-issue at this rung.
+- **The raw ZEM law cannot be closed on σ_θ·R knowledge — noise discipline is
+  load-bearing, worth two orders of magnitude.**  Closing the textbook law directly on
+  the noise envelope rectifies zero-mean knowledge error through the slew-limited
+  single engine into ~150 m RMS at 10 µrad (double-integrator harness).  Three declared
+  constants in `guidance.py` fix it: a 3σ significance gate that decides *whether* to
+  act, never *how much* (soft-thresholding strands n²× the floor); a 35 s track window
+  holding the gate open through the endgame; a 45° firing-lag hold (burning mid-slew is
+  the rectifier itself).  The injected error is Gauss–Markov (τ = 10 s, the
+  gyro-bridged track), not white per-tick draws no real filter would pass.
+- **Dispersed drag is absorbed silently: Cd ×0.5 / ×2 / storm F10.7 = 250, Ap = 100
+  land 0.09–0.19 m with Δv ≤ 0.04 m/s.**  C3a's cm-scale drag story survives feedback
+  with a *wrong* feedforward; the 5 mN floor means most low-drag feedforward ticks
+  never fire and the ZEM endgame mops up.  ADR 0013's ±6.7 coefficient tolerance is
+  untouched at factor-2 truth error.
+- **Cadence (decision 4): 1 Hz validated; the zero-offset axis is soft.**  0.1 and
+  10 Hz both stay capture-grade at the nominal grade; 10 Hz is mildly worse (0.38 m —
+  more ticks, more rectification chances), 0.1 Hz mildly better by barely firing.  At
+  zero entry offset "do almost nothing" is already an 8.5 cm trajectory (C3a), so this
+  axis mostly measures firing eagerness; C4's τ-sweep should ride entry offsets.
+- **Gates (ADR 0004) PASS — by construction, on the rails.**  The closed loop *uses*
+  both rails (peak thrust = the 400 mN cap on saturated entries; the gimbal rides the
+  1 °/s slew rail), and the execution machinery — cap, slew limiter, firing-lag hold —
+  is what keeps the command history physical; C3a's "demand under the gate" framing
+  inverts here.  Pin detail: recomputing a rail-limited step angle through acos(dot)
+  carries ~1e-12 of round-off, so the gate verdict takes a matching allowance.
+- **Propellant: terminal aim is now the dominant ledger line at the radius edge — and
+  the 2 % claim still holds.**  Δv vs entry: 0.026 m/s at zero (feedforward + bias
+  trim), 2.40 at 400 m, 3.75 at the 500 m edge (0.77 % @Isp 50), ceiling 3.94.  A
+  typical entry at the C2a budget RSS (224 m) costs ~1.3 m/s.  The worst-case stack
+  (B2 mission ledger 2.19 + radius-edge 3.75 ≈ 5.9 m/s) reads ~1.2 % @Isp 50 — under
+  the paper's 2 % at the conservative anchor, but B2's "aim is cheap" headline gains a
+  thrust-limited asterisk: cheap *inside* the funnel, ceiling-priced at its edge.
+
+C3c inherits: the 500 m measured radius as the saturation boundary, the ~670 m 3σ
+upstream tail it does not cover (MCC-2 stays load-bearing, decision 5), and the kept
+A2 solver for the cost curve.  Rung D inherits the measured radius and the σ_θ grade
+as sampled axes.
