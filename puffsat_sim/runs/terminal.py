@@ -42,7 +42,7 @@ from puffsat_sim.terminal import (
 TERMINAL_FIXED_STEP_S: float = 1.0
 
 
-def _physics_without_drag(physics: PhysicsConfig) -> PhysicsConfig:
+def physics_without_drag(physics: PhysicsConfig) -> PhysicsConfig:
     """The same force model with the drag perturbation removed (the C3a drag-free reference)."""
     return PhysicsConfig(
         tuple(p for p in physics.perturbations if not isinstance(p, AtmosphericDrag))
@@ -95,7 +95,7 @@ def run_terminal_feedforward(
 
     dragfree = propagate_to_interception(
         build_fixed_step_propagator_from_orbit(
-            handoff.getOrbit(), _physics_without_drag(physics), step_s
+            handoff.getOrbit(), physics_without_drag(physics), step_s
         ),
         epoch,
         period,
