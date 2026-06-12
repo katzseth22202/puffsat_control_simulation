@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 try:
-    # Importing montecarlo boots the JVM and loads orekit-data.zip from the cwd.
-    from puffsat_sim.montecarlo import run_terminal_feedforward
+    # Importing any JVM-side module boots the JVM and loads orekit-data.zip from the cwd.
+    from puffsat_sim.runs.terminal import run_terminal_feedforward
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 

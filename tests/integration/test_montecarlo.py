@@ -16,7 +16,8 @@ from puffsat_sim.sink import read_records, record_to_dict
 
 try:
     # Importing montecarlo boots the JVM and loads orekit-data.zip from the cwd.
-    from puffsat_sim.montecarlo import instrument_anti_drag, replay_inputs, run_ensemble
+    from puffsat_sim.montecarlo import replay_inputs, run_ensemble
+    from puffsat_sim.runs.anti_drag import instrument_anti_drag
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 

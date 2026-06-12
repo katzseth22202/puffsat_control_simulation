@@ -277,3 +277,15 @@ def solve_two_burn_correction(
         ControlAction("midcourse", 0.0, _vec3_of(x[3:]), float(np.linalg.norm(x[3:]))),
     )
     return ControlPlan(actions=actions, converged=converged, iterations=iterations)
+
+
+def report_controller(predict: PredictFn, target: Target) -> ControlPlan:
+    """The report-grade corrector config shared by the C-rung requirement reports (ADR 0017).
+
+    LM damping + budget-scale step cap as in the A3 sweep (ADR 0007 decision 3); ``tol_m=0.01``
+    so the corrector's 1-cm predict-null floor sits far below even the few-metre smallest
+    residuals, keeping an assembled Φ clean (ADR 0011).
+    """
+    return solve_apogee_correction(
+        predict, target, tol_m=0.01, lm=True, max_step_m_s=50.0, max_iter=15
+    )

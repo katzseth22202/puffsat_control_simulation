@@ -9,8 +9,8 @@ from puffsat_sim.control import ControlPlan, PredictFn, Target, solve_apogee_cor
 from puffsat_sim.navigation import NavSweepSpec, assemble_sensitivity, axis_tolerance
 
 try:
-    # Importing montecarlo boots the JVM and loads orekit-data.zip from the cwd.
-    from puffsat_sim.montecarlo import run_nav_sweep
+    # Importing any JVM-side module boots the JVM and loads orekit-data.zip from the cwd.
+    from puffsat_sim.runs.navigation import run_nav_sweep
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 

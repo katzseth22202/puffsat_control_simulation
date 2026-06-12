@@ -14,8 +14,8 @@ from puffsat_sim.sweep import (
 )
 
 try:
-    # Importing montecarlo boots the JVM and loads orekit-data.zip from the cwd.
-    from puffsat_sim.montecarlo import run_sweep
+    # Importing any JVM-side module boots the JVM and loads orekit-data.zip from the cwd.
+    from puffsat_sim.runs.sweep import run_sweep
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 

@@ -13,8 +13,8 @@ import pytest
 from puffsat_sim.nav_feasibility import NavFeasibilitySpec, apogee_state
 
 try:
-    # Importing montecarlo boots the JVM and loads orekit-data.zip from the cwd.
-    from puffsat_sim.montecarlo import _truth_arc_to_apogee, run_nav_feasibility
+    # Importing any JVM-side module boots the JVM and loads orekit-data.zip from the cwd.
+    from puffsat_sim.runs.nav_feasibility import run_nav_feasibility, truth_arc_to_apogee
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 
@@ -42,7 +42,7 @@ def _phi() -> np.ndarray:
 
 def test_truth_arc_ends_at_the_apogee_state() -> None:
     physics: PhysicsConfig = presets.full_force()
-    arc = _truth_arc_to_apogee(0.03, 600.0, physics)
+    arc = truth_arc_to_apogee(0.03, 600.0, physics)
 
     assert arc.shape == (19, 6)
     apogee = apogee_state()
