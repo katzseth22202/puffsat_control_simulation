@@ -399,6 +399,10 @@ class GuidanceSweepSpec:
     """
 
     entry_offsets_m: tuple[float, ...] = (0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 800.0)
+    # Tracker grades are architectures, not error bars (ADR 0015): 2/5 µrad are aspirational
+    # and design-target target-side optical astrometry, 10 µrad the optical requirement ceiling
+    # (the validated nominal), 50 µrad ground-station instrumentation radar — kept as the
+    # measured refutation of ground terminal tracking ("funnel-entry class, not terminal class").
     sigma_thetas_rad: tuple[float, ...] = (2e-6, 5e-6, 10e-6, 50e-6)
     constant_sigma_m: float | None = 1.0
     nominal_sigma_theta_rad: float = 10e-6

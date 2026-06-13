@@ -98,6 +98,22 @@ components in the nominal-crossing **RTN frame**. The capstone's primary metric 
 the **Differential corrector**'s objective (ADR 0003). _Avoid_: perigee error
 (perigee is a diagnostic, not the target — see Flagged ambiguities).
 
+**Catch radius**:
+The largest lateral error at the 800 km terminal hand-off that the thrust-limited
+terminal burn can null to a capture-grade hit. It is a **capability**, not a precision
+target, and **larger is better**: set by control authority (½·a_max·t² with the 400 mN
+**Actuator**), measured **~500 m** in C3b (ADR 0014's working re-baseline was 400 m). It
+propagates *backwards* as the requirement on everything upstream — it thresholds the C0
+navigation sensitivity (ADR 0011), and the C1 nav / C2 coefficient-prior margins are read
+against it — so a *smaller* catch radius makes midcourse delivery, navigation, and the
+coefficient prior all *harder*. Distinct from the **endpoint floor**: the achieved miss
+once inside the funnel (nav-limited, ~1 m at the 10 µrad terminal tracker grade). ADR
+0014's claim pair: *catch radius ~400 m (entry, thrust-limited) + endpoint floor ~1 m
+(nav-limited)* — different numbers doing different jobs. _Avoid_: using it for the
+achieved miss or as a precision goal (it is the funnel size, not the hit accuracy);
+"reduce the catch radius" to mean "hit more precisely" (the two move oppositely — a
+tighter hit is a tracker-grade question, a bigger funnel is a control-authority one).
+
 **Controller**:
 The `control=` hook on `run_ensemble`: a callable `(predict, target, basis) ->
 ControlPlan`. Rung A1 supplies the **Differential corrector**; Rung D supplies MPC;
