@@ -242,3 +242,49 @@ C3c inherits: the 500 m measured radius as the saturation boundary, the ~670 m 3
 upstream tail it does not cover (MCC-2 stays load-bearing, decision 5), and the kept
 A2 solver for the cost curve.  Rung D inherits the measured radius and the σ_θ grade
 as sampled axes.
+
+## Implementation findings — C3c (2026-06-13)
+
+C3c is built and measured (`puffsat_sim/authority.py` pure funnel/trim core + report,
+`puffsat_sim/runs/authority.py` measuring both curves over one shared nominal §6.2
+descent; `coast_to_handoff` generalized to `coast_to_altitude` in the descent kernel;
+integration test `tests/integration/test_run_authority.py`).  Two curves (decision 5/6):
+the **authority curve** (funnel ½·a_max·t² vs burn-start altitude, t_descent measured)
+and the **MCC-2 cost curve** (Δv-per-km of an impulsive out-of-plane trim vs node
+altitude, the lateral lever a ±0.1 m/s central-difference column of the kept corrector's
+Jacobian projected ⊥ v_rel).  The upstream tail is read against the **full** C2a budget
+(RSS 224 m = C1 nav 141 ⊕ B1 erosion 89 ⊕ Cr coefficient prior 149; `MEASURED_BUDGET`
+alone is only nav+erosion = 167 m, which would wrongly shrink the 3σ tail to exactly the
+funnel — the Cr-prior leg is load-bearing here).
+
+- **The ½·a_max·t² funnel model is validated at the anchor and grows quadratically.**
+  Measured t_descent(800 km hand-off) = **246.6 s** → model funnel **486.7 m** vs C3b's
+  measured **500 m** (within ~3 %); the model is trustworthy.  Raising the burn-start:
+  1000 km → 746 m, 1500 km → 1516 m, 2000 km → 2433 m, 3000 km → 4661 m (ceiling 4.9 →
+  12.2 m/s).
+- **The 671 m tail is reachable by a *modest* burn-start raise — but at ceiling Δv.**
+  Funnel growth reaches the tail at only **~942 km** (a 142 km raise, not the thousands of
+  km decision 1's "5 km needs ~3000 km+" implied — the tail is sub-km), but catching a
+  671 m entry at the grown-funnel edge costs the saturation ceiling √(2·a_max·tail) ≈
+  **4.63 m/s**.  So decision 5's "3σ tail exceeds *any* thrust-limited radius" is precise
+  only at the *fixed* 800 km hand-off; the case for MCC-2 is propellant economy, not
+  geometric necessity.
+- **The high-node impulsive trim covers the same tail ~38× cheaper — MCC-2 vindicated.**
+  A **0.12 m/s** out-of-plane trim from 100,000 km nulls the 671 m tail (0.025 % @Isp 50 —
+  invisible against the 2 % line), vs the 4.63 m/s funnel-growth edge.  The lateral lever
+  decays smoothly 5464 → 300 m/(m/s) over 100,000 → 1000 km (~18×) but stays **finite**:
+  unlike A2's *along-track* lever (zero at low nodes — phase re-accumulation needs the
+  remaining arc), the out-of-plane trim is a plane-tilt with authority even late.  §16.6's
+  "wrong node" is therefore refined — 1000 km is ~18× costlier per km (3.34 m/s/km; 2.24
+  m/s for the tail, still under the funnel-growth edge), not *dead* — but near-apogee
+  (100,000 / 30,000 km → 0.12 / 0.22 m/s) is the clear winner.
+- **Caveat that keeps the framing honest:** the cheapest node (100,000 km) is essentially
+  part of the apogee maneuver (A2: a high node ≈ the apogee burn); a genuinely mid-descent
+  trim (30,000 km, 0.22 m/s, ~21×) is also cheap.  Trim *observability* (is the −Φδ drift
+  revealed by the node? — C2b's σ_Cr(t)) and *scheduling* (always-fire vs threshold) stay
+  the named Rung-D/MPC items, as decision 5 specced.
+
+Rung D inherits: the measured trim-cost model (Δv-per-km vs node altitude) as the
+tail-correction price, and the validated authority curve as the saturation boundary vs
+burn-start altitude; MCC-2 scheduling and C2b's σ_Cr(t) observability stay open.  C4
+(latency) is the remaining C-rung slice, riding C3b's loop + swept cadence.

@@ -420,12 +420,20 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   (ADR 0014). **DONE 2026-06-11:** pin 5.5 mm; drag displacement 8.5 cm (~20× under the
   estimate); executed residual 2 mm (~45× rejection); both gates PASS (ADR 0014
   implementation findings).
-- [ ] **C3b** — ZEM closed loop under dispersed drag; σ_rel re-keyed to **σ_rel(R) = σ_θ·R**,
+- [x] **C3b** — ZEM closed loop under dispersed drag; σ_rel re-keyed to **σ_rel(R) = σ_θ·R**,
   σ_θ ∈ {2, 10, 50 µrad} + the constant 1 m ADR 0014 continuity point; new pure
   **plate-frame miss summarizer** (2D lateral ⊥ v_rel + ToA) and capture-vs-plate-radius
-  curve (ADR 0014, 0015).
-- [ ] **C3c** — thrust-authority + MCC-2 cost curves with the kept A2 solver; MCC-2 sized
-  against the *independent* tail only (ADR 0014, 0016).
+  curve (ADR 0014, 0015). **DONE 2026-06-12:** measured catch radius 500 m; 10 µrad grade
+  capture-grade (RMS 1.07 m vs σ ≤ 1.65 m), binds by 50 µrad; **noise discipline
+  load-bearing (2 orders)** — 3σ gate + 35 s track window + 45° firing-lag hold tame the
+  σ_θ·R rectification (ADR 0014 C3b findings).
+- [x] **C3c** — thrust-authority + MCC-2 cost curves with the kept A2 solver; MCC-2 sized
+  against the *independent* tail only (ADR 0014, 0016). **DONE 2026-06-13:** ½·a_max·t²
+  funnel validated (800 km → 487 m model vs 500 m measured); the 671 m tail (full C2a
+  budget 224 m, 3σ) is reachable by funnel growth at only ~942 km burn-start but at the
+  ceiling Δv ~4.63 m/s, vs a **0.12 m/s** high-node impulsive trim (**~38× cheaper** —
+  MCC-2 vindicated); the out-of-plane trim lever stays finite at low nodes (unlike A2's
+  along-track lever), scheduling defers to Rung D (ADR 0014 C3c findings).
 - [ ] **C4** — dead-time budget table + τ-sweep on the C3b loop; optional measurement-dropout
   knob for scheduled plume gating (ADR 0014, 0015).
 - [ ] **Rung D** — MC distribution with **train mode**: `DispersionSpec` shared-vs-per-unit
