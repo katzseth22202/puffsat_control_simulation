@@ -441,14 +441,24 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   tolerance is dynamics-set, not cadence-set). Read as relative degradation (double-integrator
   stand-in, ~2× hot vs C3b's Orekit loop); jitter/measurement-dropout knob unbuilt (no fragility
   shown); combined offset×noise tail stress deferred to Rung D. **Closes the C-rung.**
-- [ ] **Rung D** — MC distribution with **train mode**: `DispersionSpec` shared-vs-per-unit
-  axis designation, `sample_run_inputs` split into per-train/per-unit draws; deliverables =
-  centroid-drift distribution (vs the ±2 km retarget spec) + scatter about the centroid
-  (vs plate capture); headline **P(capture)**; σ_θ a sampled axis; offset correlation
-  structure reported for the torque ledger; MPC measured against the C baseline; LinCov as
-  screen/control-variate (ADR 0012, 0015, 0016).
-- **Parked, build only on consumption:** C2b LinCov `σ_Cr(t)` (ADR 0013); Rung E cylinder
-  comparison (ADR 0009).
+- [ ] **Rung D** — the feasibility Monte Carlo, decomposed (**ADR 0018**). **Pre-D gates
+  (blocking):** σ_θ **tracker budget** (pure: what 10 µrad demands + acquisition FOV vs the
+  hand-off Σ); torque-margin (the 1°/s slew rail); truth-validation **Tier 1**
+  (conservation / tolerance-halving on the nominal coast) + **Tier 2** (independent Python
+  conservative-force coast cross-check). **D1 — feasibility gate on the C baseline**
+  (corrector + C3b ZEM + C3c MCC-2 + finite burn): train-mode `DispersionSpec`
+  (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node
+  count → **minimum node count**; nav error sampled from the C1 Σ (not a live UKF); Φ-Jacobian
+  warm-started quasi-Newton (FD-Newton fallback) + process parallelism; **importance-sampling
+  tail** + brute-force validation batch, LinCov as pre-screen / control-variate / IS-designer
+  (never replaces the tail). Headline **P(capture)** about the train centroid + centroid-drift
+  (vs ±2 km) + scatter (vs plate) + propellant (<2 %) + perigee diagnostic + per-axis
+  sensitivities → the **conditional** yes/no. **D2 — MPC value:** MPC vs the C baseline on the
+  same MC, robustness only on a measured violation (§16.10) (ADR 0012, 0015, 0016, **0018**).
+- **Deferred rungs:** **E** cylinder shape comparison (ADR 0009); **F** GMAT full-force
+  cross-check of the nominal trajectory — the Tier-3 truth validation, run headless
+  batch-script → report → compare, *not* the conda/Python-API path (ADR 0018).
+- **Parked, build only on consumption:** C2b LinCov `σ_Cr(t)` (ADR 0013).
 - **Retired, do not schedule:** 5 cm centering; `rel_tol` 1e-13 / Encke study;
   relativity-in-filter (ADR 0015).
 

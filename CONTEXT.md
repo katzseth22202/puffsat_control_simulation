@@ -114,6 +114,18 @@ achieved miss or as a precision goal (it is the funnel size, not the hit accurac
 "reduce the catch radius" to mean "hit more precisely" (the two move oppositely — a
 tighter hit is a tracker-grade question, a bigger funnel is a control-authority one).
 
+**MCC-2** (mid-course correction, second):
+The second discrete midcourse burn of the transfer — a small **impulsive, out-of-plane
+trim fired at a high node during descent** (design point ~30,000 km altitude) that
+tilts the orbit plane to null the *lateral* entry error which the terminal **Catch
+radius** cannot. The first correction is the gross apogee-injection correction (the
+**Differential corrector** at the deployment node); MCC-2 is the fine plane-tilt that
+chips the 3σ lateral tail (~671 m) down inside the ~500 m funnel. Its lever (lateral m
+per m/s of trim, vs node altitude) was measured in C3c (ADR 0014); per ADR 0016 it is
+scoped to the **independent** tail only (common-mode tail → the plane's **Centroid
+retarget**). _Avoid_: "MCC-2" for the apogee correction (that is the first/gross
+correction); "trim" for the gross burn.
+
 **Controller**:
 The `control=` hook on `run_ensemble`: a callable `(predict, target, basis) ->
 ControlPlan`. Rung A1 supplies the **Differential corrector**; Rung D supplies MPC;
@@ -238,6 +250,25 @@ The reporting overlay (`sweep.sigma_equivalent`) mapping a deterministic sweep f
 σ in the Rung-D log-normal (`k = ln(factor)/s`, `s = √(ln(1+cv²))`), so the **Controllability
 map**'s axis reads in σ of coefficient error — tying the A3 grid back to the capstone's
 sampling distribution.
+
+**Rung D (D1 / D2)**:
+The feasibility Monte Carlo, split (ADR 0018). **D1** is the full closed-loop ensemble on
+the *C baseline* (corrector + C3b ZEM + **MCC-2** trim + finite burn) — it produces the
+**conditional** feasibility yes/no (headline **P(capture)** about the train centroid). **D2**
+prototypes MPC and measures it against the C baseline on the *same* ensemble; MPC earns its
+place only on a measured D1 threshold/constraint violation (§16.10). "Conditional" = feasible
+*given* the nav/actuator specs, which the MC takes as inputs and the **Tracker budget** +
+GDOP/torque analyses convert toward derived requirements. _Avoid_: treating "true MPC" as a
+prerequisite for the feasibility verdict (it is a D2 value question, not the D1 gate).
+
+**Tracker budget**:
+The pure derivation (a D1 blocking gate, ADR 0018) of what the 10 µrad terminal
+**Tracker grade** demands — aperture / exposure / residual jitter / SNR for a dim, fast target
+on a shaking bus, plus *acquisition* (tracker FOV vs the hand-off delivery Σ). It promotes the
+load-bearing terminal-nav assumption from an assumed spec to a derived hardware requirement;
+if 10 µrad is unmeetable the **Catch radius** story falls, so it blocks the MC. _Avoid_:
+confusing it with the **Tracker grade** itself (the budget is what *achieving* that grade
+costs, not the grade).
 
 ## Relationships
 
