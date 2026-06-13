@@ -144,7 +144,7 @@ def sigma_equivalent(factor: NDArray[np.float64], cv: float) -> NDArray[np.float
     """Map a multiplicative factor to its σ in the Rung-D log-normal (ADR 0007 decision 4).
 
     Inverts ``factor = exp(k·s)`` with ``s = √(ln(1+cv²))`` — the same dispersion the
-    capstone samples (``dispersion._lognormal_factor``) — so a grid axis reads in σ of the
+    capstone samples (``dispersion.lognormal_factor``) — so a grid axis reads in σ of the
     coefficient error: ``k = ln(factor)/s``.  Factor 1 maps to 0; ``factor`` and ``1/factor``
     are ±k.
     """

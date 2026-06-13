@@ -54,7 +54,7 @@ class RunInputs:
     ap: float
 
 
-def _lognormal_factor(rng: np.random.Generator, cv: float) -> float:
+def lognormal_factor(rng: np.random.Generator, cv: float) -> float:
     """Multiplicative factor with median 1 and coefficient of variation ``cv``.
 
     ln(factor) ~ N(0, s) with s = √(ln(1+cv²)), so the median is exp(0)=1 and the
@@ -72,10 +72,10 @@ def sample_run_inputs(rng: np.random.Generator, spec: DispersionSpec, run_index:
     dv_r = float(rng.normal(0.0, spec.sigma_dv_radial_m_s))
     dv_t = float(rng.normal(0.0, spec.sigma_dv_transverse_m_s))
     dv_n = float(rng.normal(0.0, spec.sigma_dv_normal_m_s))
-    cd = spec.cd_area_over_mass * _lognormal_factor(rng, spec.sigma_cd_frac)
-    cr = spec.cr_area_over_mass * _lognormal_factor(rng, spec.sigma_cr_frac)
-    f10p7 = spec.f10p7 * _lognormal_factor(rng, spec.sigma_f10p7_frac)
-    ap = spec.ap * _lognormal_factor(rng, spec.sigma_ap_frac)
+    cd = spec.cd_area_over_mass * lognormal_factor(rng, spec.sigma_cd_frac)
+    cr = spec.cr_area_over_mass * lognormal_factor(rng, spec.sigma_cr_frac)
+    f10p7 = spec.f10p7 * lognormal_factor(rng, spec.sigma_f10p7_frac)
+    ap = spec.ap * lognormal_factor(rng, spec.sigma_ap_frac)
     return RunInputs(run_index, (dv_r, dv_t, dv_n), cd, cr, f10p7, ap)
 
 
