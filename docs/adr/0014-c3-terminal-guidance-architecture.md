@@ -288,3 +288,50 @@ Rung D inherits: the measured trim-cost model (Δv-per-km vs node altitude) as t
 tail-correction price, and the validated authority curve as the saturation boundary vs
 burn-start altitude; MCC-2 scheduling and C2b's σ_Cr(t) observability stay open.  C4
 (latency) is the remaining C-rung slice, riding C3b's loop + swept cadence.
+
+## Implementation findings — C4 (2026-06-13)
+
+C4 is built and measured (`puffsat_sim/latency.py` pure budget/phase/dead-time core +
+report, 16 unit tests `tests/test_latency.py`).  **No JVM seam** — unlike C3a/b/c,
+dead-time is a loop-transfer effect, so the Orekit physics add nothing the stability
+question needs; the τ-sweep flies the C3b ZEM law on a pure double integrator with a
+`DeadTimeBuffer` (the equivalent `e^{-sτ}`).  This is the only C-rung with no `runs/` glue.
+
+- **Per-loop budget, split onto the loops the latency actually lives on.**  Terminal inner
+  loop (drag rejection / ZEM aim): tracker exposure 1 ms + ≤100 km crosslink 0.33 ms +
+  onboard compute 1 ms + ms-class valve 5 ms = **7.3 ms**.  Midcourse outer loop: node comms
+  round-trip 13.3 ms + coordinator UKF/corrector 50 ms + uplink 6.7 ms = **70 ms** — but a
+  **discrete replan** (impulsive correction, no continuous feedback), so there is no phase
+  margin to erode; its latency only shifts *when* a correction is computed against an
+  hours-scale timeline.
+- **Phase check (the deliverable).**  At the ~1 Hz drag-rejection bandwidth the 7.3 ms budget
+  erodes ω_c·τ = **2.64°** of phase — single-digit, negligible against a 30–60° margin.  This
+  is the back-of-envelope that settles §16.8.
+- **Noiseless τ-sweep (confirmation).**  At the validated 1 Hz cadence the 7.3 ms budget is
+  **0.73 % of the control period** — sub-tick, so it rounds to the identity buffer and
+  reproduces the zero-delay miss byte-for-byte.  The homing miss stays flat (≤2× baseline)
+  through a full **1 s (1 tick ≈ 136× the budget)** and degrades only at 2 ticks (2 s, 2.5×
+  baseline).  Cross-checked at the 100 Hz inner-sample rate (`dt_s=0.01`): the budget (0.7
+  ticks) is flat at ≈1× baseline.  **The absolute dead-time the loop tolerates (~1 s) is set
+  by the closing dynamics, not the cadence** — the budget sits ≫100× inside it at both rates,
+  so the "1 control period" tolerance at 1 Hz is a cadence coincidence, not a fundamental
+  limit.
+- **Why noiseless, and why relative degradation.**  The sweep loop is a pure
+  double-integrator stand-in for C3b's Orekit harness; at the matched (zero-offset, 10 µrad)
+  point it runs **~2× hot** (2.45 m vs C3b's measured 1.07 m: no plate-frame
+  coast-to-closest-approach, no anti-drag feedforward, gravity-free fixed-LOS geometry).  So
+  the absolute miss is *not* the figure of merit — the sweep reads **relative degradation vs
+  the zero-delay run**, which is sound because dead-time is a loop-timing effect independent
+  of the absolute floor.  Superimposing tracker noise (already C3b's measured finding) would
+  only obscure the pure dead-time signal.
+- **Deferred, as specced.**  C (delay + jitter, §16.8) and the optional measurement-dropout
+  knob are **not built** — the sweep showed no fragility within the budget, so jitter is
+  unjustified complexity at this rung.  The **combined entry-offset × tracker-noise stress at
+  the dispersion tail** — which neither C3b's noiseless catch-radius nor its zero-offset nav
+  floor measured — is a **Rung-D full-Monte-Carlo question by construction** (vary one axis at
+  a time → C3b/C4; stack the real offset distribution × noise × latency → Rung D's
+  P(capture)).
+
+Rung D inherits: latency confirmed a non-contributor to the miss budget within the realistic
+7.3 ms terminal dead-time; the combined offset×noise tail stress and (if ever needed) the
+jitter knob are the open items.  **C4 closes the C-rung** (C0–C4 all measured).
