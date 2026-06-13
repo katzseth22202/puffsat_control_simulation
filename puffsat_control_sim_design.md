@@ -454,9 +454,24 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   ±2 mrad beam covers the **±1.4 mrad** (3σ·141 m / 300 km) acquisition cone; the **binding FOV
   is reference-star availability** (±5.8 mrad for 3 stars at ~10th-mag density), resolved to
   Nyquist by a **~1100-px detector at 10.6 µrad/px**. The load-bearing terminal-nav grade is
-  now a *derived* hardware requirement, not a guess. *Remaining pre-D gates:* torque-margin
-  (the 1°/s slew rail); truth-validation **Tier 1** (conservation / tolerance-halving on the
-  nominal coast) + **Tier 2** (independent Python conservative-force coast cross-check).
+  now a *derived* hardware requirement, not a guess. **Torque-margin** (the 1°/s slew rail) —
+  **DONE 2026-06-13 (`puffsat_sim/torque_margin.py`, pure, no JVM; non-blocking): CONFIRMED.**
+  The thrust-direction demand is the perigee LOS rate `v_p/r_p` = **0.097 °/s** (B3a *measured*
+  0.048 °/s) → **~10× (21×) inside the 1 °/s rail** — confirming §13's "expected slack, a result
+  to confirm." A conservative whole-body case (I ≈ 5 kg·m² at a 0.45 m gyradius, a 50 mN·m
+  cold-gas couple) reaches the demand rate in 0.17 s and the full rail in 1.8 s, and out-torques
+  the aero disturbance (peak drag × CP–CM offset) **20×**; break-even at I ≈ 29 kg·m² /
+  2.5 mN·m. The inertia and actuator are paper-side pins (gimballing the nozzle beats whole-body
+  a fortiori). **Truth-validation** (the coast is ~99 % of the trajectory) —
+  **DONE 2026-06-13 (`puffsat_sim/truth_validation.py` + `runs/truth_validation.py`):
+  VALIDATED.** On the reference apogee→800 km coast (~32 h): **Tier 1** — a numerical two-body
+  coast conserves energy to **5e-15** and |h| to **6e-16** (machine precision, no integrator
+  leak), and tolerance-halving (×0.1 `rel_tol`) moves the trajectory 0 m (step is max-step-bound
+  in the benign apogee region — the conservation drift is the stronger read); **Tier 2** — an
+  independent pure-Python RK4 Cowell (`estimation.two_body_j2_flow`, sharing only the pinned
+  constants) matches the Orekit J2 coast to **15.7 m** (1e-7 of the orbit scale), confirming the
+  frame / μ / J2 / force-assembly setup in the dominant dynamics (non-conservative forces stay
+  validated by the Rung-A signature tests). The full-force **GMAT** cross-check remains **Rung F**.
   **D1 — feasibility gate on the C baseline**
   (corrector + C3b ZEM + C3c MCC-2 + finite burn): train-mode `DispersionSpec`
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node

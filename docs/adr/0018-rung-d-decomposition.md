@@ -150,3 +150,47 @@ RSS error budget for a declared `TrackerHardware` point plus the acquisition geo
   tension a naive acquisition-only sizing would miss is surfaced and comfortably met.
 - A coarse distortion floor (≥ ~10 µrad) flips the gate to FAIL — the blocking semantics work,
   and the gate's `meets_requirement` / `meets_target` reads are the D1 entry condition.
+
+## Implementation findings — torque margin (2026-06-13)
+
+The second pre-gate, built pure (`puffsat_sim/torque_margin.py`, no JVM — attitude agility is
+an inertia/actuator question, not an orbit one; like the σ_θ budget it has no `runs/` glue).
+It is **non-blocking** (a confirmation, not a D1 entry condition): §13 flagged the ~10× slack
+over the perigee sweep as "a result to confirm, not assume," and this is that confirmation.
+
+- **CONFIRMED.** The thrust-direction demand is the perigee LOS rate `v_p/r_p` = **0.097 °/s**,
+  which sits **10.3× inside the 1 °/s C3b direction-loop rail** (`anti_drag.PEAK_SLEW_LIMIT_DEG_S`);
+  the B3a *measured* descent demand (0.048 °/s) carries 21×. The rail the terminal aim rides is
+  not the binding constraint.
+- **The rail is deliverable on conservative pins.** A whole-body case (I ≈ 5.06 kg·m² at a 0.45 m
+  gyradius, a 50 mN·m cold-gas couple = two 50 mN thrusters at 0.5 m) gives α ≈ 0.57 °/s² — it
+  reaches the demand rate in **0.17 s** (inside the 1 s control period) and the full rail in 1.8 s,
+  and out-torques the aero disturbance (peak drag 16.7 mN × 0.15 m CP–CM offset = 2.5 mN·m) **20×**.
+  Gimballing the small nozzle beats whole-body slew a fortiori.
+- **Break-even on the unpinned margins** (the inertia and actuator are paper-side pins, like the
+  target inertia in ADR 0015): the actuator still reaches demand in a period up to **I ≈ 29 kg·m²**,
+  and still holds against drag down to a **2.5 mN·m** control torque — wide headroom on both.
+
+## Implementation findings — truth validation (2026-06-13)
+
+The third pre-gate, **non-blocking**. The pure core is `puffsat_sim/truth_validation.py` (the
+invariants, the independent propagation, the reductions); unlike the other two pre-gates it does
+have a `runs/` glue (`runs/truth_validation.py`) because the coast it validates is flown by
+Orekit. Rung D's verdict is only as trustworthy as the truth it rides on, and the coast is ~99 %
+of the trajectory, so a frame / μ / J2-sign / leaking-integrator bug would hide there.
+
+- **VALIDATED on the reference apogee→800 km coast (~32 h).** **Tier 1** — a *numerical* two-body
+  coast (the analytic Kepler route bypassed) conserves specific energy to **5.3e-15** and |h| to
+  **6.5e-16** (machine precision — no integrator leak); tolerance-halving (×0.1 `rel_tol`) moves
+  the trajectory **0 m** (the step is max-step-bound in the benign apogee region, so the
+  conservation drift is the stronger read). **Tier 2** — an independent pure-Python RK4 Cowell
+  (`estimation.two_body_j2_flow`, sharing only the pinned constants) matches the Orekit J2 coast
+  to **15.7 m** (1.0e-7 of the orbit scale), confirming the frame / μ / J2 / force-assembly setup
+  in the dominant dynamics.
+- **Scope.** Tier 1 validates integrator health on conservative dynamics; Tier 2 validates the
+  perturbed-dynamics *setup*. The non-conservative forces (drag / SRP / third-body) stay validated
+  by the Rung-A force-signature tests. The full-force **GMAT** cross-check remains **Rung F**
+  (headless batch, not a conda/API dependency) — this gate is the in-repo confirmation, not that.
+- The `rel_tol` override added to `propagator._build_numerical_propagator` is the only production
+  change: it both enables tolerance-halving and forces a numerical two-body propagation (bypassing
+  the `is_keplerian` analytic route) so the conservation check exercises the real integrator.
