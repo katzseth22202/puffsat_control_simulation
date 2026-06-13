@@ -100,10 +100,19 @@ def build_propagator_from_orbit(
 
 
 def _build_numerical_propagator(
-    orbit: Any, physics_config: PhysicsConfig, max_step_s: float = _MAX_STEP_S
+    orbit: Any,
+    physics_config: PhysicsConfig,
+    max_step_s: float = _MAX_STEP_S,
+    rel_tol: float = _REL_TOL,
 ) -> Any:
-    """Build a NumericalPropagator and attach the perturbations' force models."""
-    integrator = DormandPrince853Integrator(_MIN_STEP_S, max_step_s, _ABS_TOL_M, _REL_TOL)
+    """Build a NumericalPropagator and attach the perturbations' force models.
+
+    ``rel_tol`` overrides the adaptive integrator's relative tolerance — the knob the C4
+    truth-validation gate (ADR 0018) halves to confirm truncation error sits below the
+    dispersion scale.  It also forces a *numerical* two-body propagation (callers bypass the
+    ``is_keplerian`` analytic route) for the integrator-health conservation check.
+    """
+    integrator = DormandPrince853Integrator(_MIN_STEP_S, max_step_s, _ABS_TOL_M, rel_tol)
     propagator = NumericalPropagator(integrator)
     propagator.setOrbitType(OrbitType.KEPLERIAN)
     propagator.setPositionAngleType(PositionAngleType.MEAN)
