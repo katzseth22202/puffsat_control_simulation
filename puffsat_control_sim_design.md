@@ -473,7 +473,19 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   frame / μ / J2 / force-assembly setup in the dominant dynamics (non-conservative forces stay
   validated by the Rung-A signature tests). The full-force **GMAT** cross-check remains **Rung F**.
   **D1 — feasibility gate on the C baseline**
-  (corrector + C3b ZEM + C3c MCC-2 + finite burn): train-mode `DispersionSpec`
+  (corrector + C3b ZEM + C3c MCC-2 + finite burn). **D1.0 — train-mode dispersion (pure core) —
+  DONE 2026-06-13 (`puffsat_sim/train.py`, pure, no JVM, TDD).** `TrainDispersionSpec` splits
+  each `DispersionSpec` σ into a per-train **shared** draw (coefficient bias / F10.7-Ap drivers /
+  deployer systematic — the §16.7 common-density component) and a per-PuffSat **per-unit** draw
+  (coefficient spread / injection scatter); `sample_train` composes the same `RunInputs` the JVM
+  `run_record` consumes (so D1.1 wires in unchanged), `replay_train_unit` is the standalone §14.2
+  replay. Two limiting cases pin the split (per-unit→0 = pure common mode, shared→0 = independent
+  per-unit), the bias/spread compose multiplicatively (marginal log-var `s_bias²+s_spread²`). The
+  reduction `summarize_train_capture` makes ADR 0016 operational — train **centroid drift** (vs
+  the ±2 km retarget) vs **scatter about the centroid** (re-centred, vs the plate; reuses
+  `guidance.capture_fraction`); a 1.5 km common-mode shift + ~1 m scatter reads 100 % capture
+  about centroid vs 0 % absolute. The JVM closed-loop train ensemble is **D1.1**. Remaining D1:
+  train-mode `DispersionSpec`
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node
   count → **minimum node count**; nav error sampled from the C1 Σ (not a live UKF); Φ-Jacobian
   warm-started quasi-Newton (FD-Newton fallback) + process parallelism; **importance-sampling

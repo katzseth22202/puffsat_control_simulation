@@ -75,6 +75,17 @@ The swept knobs for one Monte Carlo ensemble — nominal values plus per-input 1
 object in `dispersion.py`. It is the *distribution*, not a sample.
 _Avoid_: conflating it with the per-run draws (**RunInputs**).
 
+**TrainDispersionSpec**:
+The **Train**-mode dispersion (D1.0; `train.py`, ADR 0016/0018): each **DispersionSpec**
+σ split into a **shared** (per-train, common-mode: coefficient *bias*, F10.7/Ap
+*drivers*, deployer *systematic*) and a **per-unit** part (coefficient *spread*,
+injection *scatter*). `sample_train` draws the shared part once per train and composes
+`n_units` **RunInputs**; `replay_train_unit` is the standalone replay. The verdict
+(`summarize_train_capture` → `TrainCaptureStats`) splits a train's arrivals into
+**Centroid retarget** drift (common-mode, vs ±2 km) and scatter about the centroid
+(per-unit, vs the plate). _Avoid_: reading it as a station-keeping formation (a
+**Train** never station-keeps); conflating shared bias with per-unit spread.
+
 **RunInputs**:
 One run's sampled draws (RTN injection Δv plus the four log-normal coefficients /
 drivers) and its `run_index`; a run replays standalone from `master_seed` +

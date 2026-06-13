@@ -194,3 +194,34 @@ of the trajectory, so a frame / μ / J2-sign / leaking-integrator bug would hide
 - The `rel_tol` override added to `propagator._build_numerical_propagator` is the only production
   change: it both enables tolerance-halving and forces a numerical two-body propagation (bypassing
   the `is_keplerian` analytic route) so the conservation check exercises the real integrator.
+
+## Implementation findings — train mode (D1.0, 2026-06-13)
+
+The first D1 sub-slice (decision 3), built **pure** (`puffsat_sim/train.py`, no JVM) and
+**TDD**, faithful to the project's "pure core first, JVM glue next" rhythm: the JVM closed-loop
+train ensemble (stringing the C3b ZEM + C3c MCC-2 pieces into `run_record`) is **D1.1**.
+
+- **The shared-vs-per-unit split is a generalization of the existing sampler, not a rewrite.**
+  `TrainDispersionSpec` splits each `DispersionSpec` σ into a per-train **shared** draw
+  (coefficient *bias*, F10.7/Ap *drivers*, deployer *systematic*) and a per-PuffSat **per-unit**
+  draw (coefficient *spread*, injection *scatter*). `sample_train` composes the **same**
+  `RunInputs` the JVM `run_record` already consumes, so D1.1 wires in with no record change.
+  Two limiting cases pin the decomposition: per-unit σ → 0 makes a train internally identical
+  (pure common mode), shared σ → 0 recovers independent per-unit draws (the single-PuffSat
+  behaviour). The bias and spread compose **multiplicatively**, so the marginal per-unit
+  log-variance is `s_bias² + s_spread²` (a tested invariant) — and the §16.7 density gap closes
+  as predicted: the common density component *is* the shared F10.7/Ap driver, the per-unit
+  density error folds into the per-unit `Cd·(A/m)` spread, no separate axis.
+- **Standalone replay survives the train structure.** Arity-distinguished spawn keys — shared on
+  `(train_index,)`, unit on `(train_index, unit_index)` — let `replay_train_unit` reconstruct any
+  single PuffSat bit-for-bit without the train (§14.2), the train analog of `replay_inputs`. The
+  flat `run_index = train_index·n_units + unit_index` keeps the resume sink unchanged.
+- **The reduction makes ADR 0016's split operational.** `summarize_train_capture` reuses the
+  `guidance` plate-capture machinery: the train **centroid** is the common-mode shift (charged to
+  the ±2 km centroid retarget, `retarget_ok`), and each unit is **re-centered** on the centroid
+  (where the plane aims) before judging capture, so the **scatter** alone faces the plate
+  (per-axis σ vs 1.65 m, `scatter_sigma_ok`). A spot-check confirms the headline: a 1.5 km
+  common-mode shift + ~1 m per-unit scatter reads `retarget_ok` with **100 % capture about the
+  centroid** vs **0 % absolute** — the retarget earns its keep, exactly the ADR 0016 story. The
+  correlation pins (bias/spread split, systematic, retarget capability) are `TrainDispersionSpec`
+  fields, so D1.1's sweep is "run ensembles across specs," carrying its own sensitivity.
