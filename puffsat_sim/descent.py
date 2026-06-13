@@ -89,14 +89,26 @@ def propagate_to_interception(propagator: Any, epoch: Any, period: float, earth:
     )
 
 
-def coast_to_handoff(coast_prop: Any, epoch: Any, period: float, earth: Any) -> Any:
-    """Run the smooth coast on the big adaptive step, stopping at the 800 km hand-off (§6.2)."""
+def coast_to_altitude(
+    coast_prop: Any, epoch: Any, period: float, earth: Any, altitude_m: float
+) -> Any:
+    """Run the smooth coast on the big adaptive step, stopping at a descending altitude event.
+
+    The §6.2 coast guard generalized to an arbitrary altitude — the C3c authority/trim
+    sweep (ADR 0014 decision 5/6) stops the coast at each burn-start and trim-node
+    altitude; :func:`coast_to_handoff` is the 800 km hand-off specialization.
+    """
     coast_prop.addEventDetector(
-        AltitudeDetector(HANDOFF_ALT_M, earth).withHandler(
+        AltitudeDetector(altitude_m, earth).withHandler(
             StopOnDecreasing()  # type: ignore[no-untyped-call]
         )
     )
     return coast_prop.propagate(epoch.shiftedBy(period))
+
+
+def coast_to_handoff(coast_prop: Any, epoch: Any, period: float, earth: Any) -> Any:
+    """Run the smooth coast on the big adaptive step, stopping at the 800 km hand-off (§6.2)."""
+    return coast_to_altitude(coast_prop, epoch, period, earth, HANDOFF_ALT_M)
 
 
 def descend(
