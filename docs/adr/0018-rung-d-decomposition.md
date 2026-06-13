@@ -120,3 +120,33 @@ missing for a *true* answer, and place LinCov/NEES. Three reframings drove the d
 - **The verdict is explicitly conditional.** The σ_θ budget (plus the GDOP/torque
   confirmations) is what tightens it toward "feasible, *and* here is what each subsystem must
   achieve" — the strongest statement a sim makes without a bench.
+
+## Implementation findings — σ_θ tracker budget (2026-06-13)
+
+The first pre-D gate, built pure (`puffsat_sim/tracker_budget.py`, no JVM — angular precision
+is a focal-plane question, not an orbit one; like C4 it has no `runs/` glue). It is a four-term
+RSS error budget for a declared `TrackerHardware` point plus the acquisition geometry.
+
+- **GATE PASS, and it even meets the 5 µrad target.** The conservative default point (5 cm
+  aperture, 1 ms exposure, 1 W laser beacon @ 1064 nm, beam ±2 mrad, η 0.3, nav-grade gyro,
+  bench-calibratable 3 µrad focal-plane distortion) achieves **σ_θ = 3.2 µrad RSS — 3.1×
+  under the 10 µrad requirement**. So the load-bearing terminal-nav grade is a *derived*
+  hardware requirement now, not an assumed input, and D1 is unblocked on this gate.
+- **The budget is calibration/jitter-limited, not photon-limited.** The active beacon gives
+  SNR ≈ 1670 at the 300 km design (worst, longest) range, so photon-limited centroiding
+  contributes only ~0.01 µrad; the RSS is dominated by the **focal-plane distortion floor**
+  (3 µrad), with the post-impact smear residual (0.87 µrad, after differential cancellation)
+  and the gyro bridge (0.58 µrad) minor. This dissolves the "dim, fast target on a shaking
+  bus" worry: making the target an *active* beacon converts it to a bright source, and the
+  residual limits are bench-calibratable, not fundamental.
+- **It closes the loop back to capture.** Homing floor `2σ_θ²v²/a_max` at the achieved grade
+  is **0.15 m ≪ 1.65 m**; the bare 10 µrad requirement reproduces ADR 0015's thin-margin
+  1.45 m reference — so the achievable hardware sits well clear of the criterion that drives
+  the catch radius.
+- **Acquisition is governed by reference-star availability, not the delivery dispersion.**
+  The ±2 mrad beam covers the **±1.4 mrad** (3σ · 141 m C1 lateral / 300 km) acquisition cone;
+  the **binding FOV is the ±5.8 mrad** needed for 3 reference stars (~10th-mag density), which
+  a **~1100-px detector at 10.6 µrad/px** resolves to Nyquist. The narrow-FOV-vs-star-count
+  tension a naive acquisition-only sizing would miss is surfaced and comfortably met.
+- A coarse distortion floor (≥ ~10 µrad) flips the gate to FAIL — the blocking semantics work,
+  and the gate's `meets_requirement` / `meets_target` reads are the D1 entry condition.

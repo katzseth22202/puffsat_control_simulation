@@ -443,9 +443,21 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   shown); combined offset×noise tail stress deferred to Rung D. **Closes the C-rung.**
 - [ ] **Rung D** — the feasibility Monte Carlo, decomposed (**ADR 0018**). **Pre-D gates
   (blocking):** σ_θ **tracker budget** (pure: what 10 µrad demands + acquisition FOV vs the
-  hand-off Σ); torque-margin (the 1°/s slew rail); truth-validation **Tier 1**
-  (conservation / tolerance-halving on the nominal coast) + **Tier 2** (independent Python
-  conservative-force coast cross-check). **D1 — feasibility gate on the C baseline**
+  hand-off Σ) — **DONE 2026-06-13 (`puffsat_sim/tracker_budget.py`, pure, no JVM): GATE
+  PASS.** A conservative point (5 cm aperture, 1 ms exposure, 1 W beacon @ 1064 nm, beam
+  ±2 mrad, η 0.3, nav-grade gyro, bench-calibratable 3 µrad focal-plane distortion) achieves
+  **σ_θ = 3.2 µrad RSS — 3.1× under the 10 µrad requirement, inside the 5 µrad target**. The
+  active beacon gives SNR ≈1670 at 300 km, so the budget is **calibration/jitter-limited
+  (the distortion floor dominates), not photon-limited** — the "dim, fast target" worry is
+  dissolved by making the target active. Homing floor at the achieved grade **0.15 m ≪ 1.65 m**
+  (the bare 10 µrad requirement → 1.45 m, ADR 0015's thin-margin reference). Acquisition: the
+  ±2 mrad beam covers the **±1.4 mrad** (3σ·141 m / 300 km) acquisition cone; the **binding FOV
+  is reference-star availability** (±5.8 mrad for 3 stars at ~10th-mag density), resolved to
+  Nyquist by a **~1100-px detector at 10.6 µrad/px**. The load-bearing terminal-nav grade is
+  now a *derived* hardware requirement, not a guess. *Remaining pre-D gates:* torque-margin
+  (the 1°/s slew rail); truth-validation **Tier 1** (conservation / tolerance-halving on the
+  nominal coast) + **Tier 2** (independent Python conservative-force coast cross-check).
+  **D1 — feasibility gate on the C baseline**
   (corrector + C3b ZEM + C3c MCC-2 + finite burn): train-mode `DispersionSpec`
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node
   count → **minimum node count**; nav error sampled from the C1 Σ (not a live UKF); Φ-Jacobian
