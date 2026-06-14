@@ -225,3 +225,48 @@ train ensemble (stringing the C3b ZEM + C3c MCC-2 pieces into `run_record`) is *
   centroid** vs **0 % absolute** — the retarget earns its keep, exactly the ADR 0016 story. The
   correlation pins (bias/spread split, systematic, retarget capability) are `TrainDispersionSpec`
   fields, so D1.1's sweep is "run ensembles across specs," carrying its own sensitivity.
+
+## Implementation findings — D1.1 closed-loop train ensemble (2026-06-14)
+
+The first *runnable* Rung-D result: the C-baseline closed loop flown per PuffSat
+(`runs/train.py`), reduced over a train into P(capture). **Architecture (user-confirmed):
+Φ-composed entry + flown terminal.** The midcourse→hand-off residual is linear in nav/coefficient
+error (C0's Φ), so each unit's hand-off lateral entry offset is *sampled* from the characterized
+C0/C1/C2a budget (per-unit 141 m C1 nav, shared 149 m C2a Cr-prior, as 2-D lateral magnitudes);
+the C3b ZEM terminal loop is *flown* through the cliff / gate / σ_θ·R noise. The corrector-in-loop
+brute-force validation, MCC-2 scheduling, and the node-count Σ sweep stay later D1.x (decisions 4/6).
+
+- **THE FINDING — the combined entry×noise stress is the binding effect, and it tightens the
+  terminal-nav requirement from the 10 µrad *ceiling* to the ~3 µrad *target*.** C3b measured the
+  two stresses *separately* (entry offsets noiseless → null to mm; tracker noise at zero entry →
+  1.07 m at 10 µrad) and deferred their combination to Rung D. D1.1 measures it. The capture cliff
+  vs grade (16-unit train, ~155 m mean entry): **2 µrad → σ 0.65 m / 100 %; 3.2 µrad → σ 1.35 m /
+  ~94 %; 5 µrad → σ 2.54 m / 81 %; 10 µrad → σ 5.77 m / 31 %.** The nominal **10 µrad requirement
+  ceiling FAILS** the σ ≤ 1.65 m criterion under combined stress (σ 5.77 m); the **achievable
+  3.2 µrad grade PASSES** (σ 1.35 m < 1.65 m → capture-grade by the Rayleigh criterion; the 16-unit
+  empirical 94 %/100 % about-centroid/absolute is small-N). So the σ_θ budget gate's "3.1× margin
+  under 10 µrad" is **load-bearing, not slack** — D1.1 shows the achievable grade is *required*.
+- **Mechanism (why the combination is worse than either alone).** The hand-off→target range is
+  **2603 km**, so σ_θ·R is **26 m at 10 µrad** early in the descent. C3b's significance gate
+  protects the *zero-entry* case by staying silent through that noisy large-R regime (|ZEM| ≈
+  noise < 3σ gate), acting only late when R — and the noise — is small. A real ~150 m entry
+  **defeats that protection**: it forces the loop to fire hard early, through the 26 m noise, which
+  rectifies through the slew-limited gimbal into the trajectory. A tighter grade shrinks the
+  large-R noise and recovers — hence the clean cliff.
+- **The terminal funnel absorbs the common-mode entry, so the centroid retarget is unstressed.**
+  Because every unit homes to the same aim point, the shared (149 m) entry offset is *nulled by the
+  funnel*, not left as an arrival bias: the measured arrival **centroid drift is ~0–4 m** (≪ the
+  ±2 km retarget) and the per-unit misses are unbiased zero-mean noise residuals. So the ±2 km
+  retarget (a *pre-launch* plane-positioning mechanism) is the backstop for common-mode the funnel
+  *cannot* remove (a common ToA bias, or common-mode beyond the ~450 m funnel authority) — neither
+  of which arises here. The D1.0 shared→centroid / per-unit→scatter mapping holds for the *delivery*
+  budget; the in-flight funnel then removes the common-mode delivery on top.
+- **The other deliverables pass comfortably.** Propellant: worst-unit mission Δv ≈ 4.4 m/s
+  (midcourse 2.19 + terminal aim ≤ 2.3) → **~0.9 % @ Isp 50 s**, well under 2 %. Perigee **~65 km**
+  (deorbit-good). ToA scatter **≤ 0.7 ms** — two orders inside the 10 ms window.
+- **Verdict (conditional, on the C baseline — no MPC).** D1 is **feasible on the dumb, transparent
+  C law, conditional on the ~3 µrad terminal-nav grade** (achievable per the σ_θ budget gate), not
+  the 10 µrad ceiling. D2 (MPC) is **not triggered** — the baseline meets the criterion at the
+  achievable grade. The honest D1.1 caveat: the entry σ is the C1/C2a *crossing* budget applied at
+  the hand-off (a conservative proxy; the true hand-off-lateral Φ is a D1.x refinement), and the
+  tail P(capture) wants the importance-sampling batch (decision 6), not a 16-unit empirical.

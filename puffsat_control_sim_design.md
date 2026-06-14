@@ -484,7 +484,22 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   reduction `summarize_train_capture` makes ADR 0016 operational — train **centroid drift** (vs
   the ±2 km retarget) vs **scatter about the centroid** (re-centred, vs the plate; reuses
   `guidance.capture_fraction`); a 1.5 km common-mode shift + ~1 m scatter reads 100 % capture
-  about centroid vs 0 % absolute. The JVM closed-loop train ensemble is **D1.1**. Remaining D1:
+  about centroid vs 0 % absolute. **D1.1 — closed-loop train ensemble — DONE 2026-06-14
+  (`puffsat_sim/runs/train.py` + `runs/guidance` 2-D entry; ADR 0018 impl-findings).** The first
+  *runnable* Rung-D result, **Φ-composed entry + flown terminal**: each unit's hand-off lateral
+  entry is *sampled* from the C0/C1/C2a budget (linear in nav per C0's Φ), the C3b ZEM loop *flown*
+  through the cliff / gate / σ_θ·R noise (the binding nonlinearity). **THE FINDING — the combined
+  entry×noise stress (measured *separately* by C3b, deferred to D) tightens the terminal-nav
+  requirement from the 10 µrad ceiling to the ~3 µrad target.** Capture cliff vs grade (16-unit
+  train, ~155 m entry): 2 µrad → σ 0.65 m/100 %; **3.2 µrad → σ 1.35 m / capture-grade**; 5 µrad →
+  σ 2.54 m/81 %; **10 µrad → σ 5.77 m/31 % (FAILS)**. The 10 µrad *ceiling* fails the σ ≤ 1.65 m
+  criterion under combined stress; the *achievable* 3.2 µrad grade (σ_θ budget gate) passes — so
+  that gate's 3.1× margin is **load-bearing, not slack**. Mechanism: σ_θ·R = 26 m at the 2603 km
+  hand-off range, and a real entry forces the loop to fire early through that large-R noise,
+  defeating the significance gate that protects the zero-entry case. The terminal funnel *removes*
+  the common-mode entry (homing), so the arrival **centroid drift ~0** and the ±2 km retarget is
+  unstressed. Propellant ~0.9 % @ Isp 50, perigee ~65 km, ToA ≤ 0.7 ms. **Verdict: D1 feasible on
+  the C baseline conditional on the ~3 µrad grade — D2/MPC not triggered.** Remaining D1:
   train-mode `DispersionSpec`
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node
   count → **minimum node count**; nav error sampled from the C1 Σ (not a live UKF); Φ-Jacobian

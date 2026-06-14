@@ -83,8 +83,14 @@ injection *scatter*). `sample_train` draws the shared part once per train and co
 `n_units` **RunInputs**; `replay_train_unit` is the standalone replay. The verdict
 (`summarize_train_capture` → `TrainCaptureStats`) splits a train's arrivals into
 **Centroid retarget** drift (common-mode, vs ±2 km) and scatter about the centroid
-(per-unit, vs the plate). _Avoid_: reading it as a station-keeping formation (a
-**Train** never station-keeps); conflating shared bias with per-unit spread.
+(per-unit, vs the plate). D1.1 adds the **hand-off entry offset** (`sample_train_entry_offsets`):
+the Φ-composed midcourse residual (per-unit C1 nav 141 m + shared C2a Cr-prior 149 m,
+2-D lateral) the C3b terminal funnel flies from — `summarize_train_ensemble` →
+`TrainEnsembleFinding` (capture + propellant + perigee) is the D1.1 verdict surface.
+_Avoid_: reading it as a station-keeping formation (a **Train** never station-keeps);
+conflating shared bias with per-unit spread; assuming the centroid retarget absorbs the
+entry offset (the funnel removes the common-mode entry in flight — the retarget is the
+pre-launch backstop for common-mode beyond the funnel authority).
 
 **RunInputs**:
 One run's sampled draws (RTN injection Δv plus the four log-normal coefficients /
