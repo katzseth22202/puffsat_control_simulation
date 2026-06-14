@@ -500,6 +500,22 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   the common-mode entry (homing), so the arrival **centroid drift ~0** and the ±2 km retarget is
   unstressed. Propellant ~0.9 % @ Isp 50, perigee ~65 km, ToA ≤ 0.7 ms. **Verdict: D1 feasible on
   the C baseline conditional on the ~3 µrad grade — D2/MPC not triggered.**
+  **D1.x — corrector-in-loop validation — DONE 2026-06-14
+  (`puffsat_sim/corrector_validation.py` pure + `runs/corrector_validation.py`; ADR 0018 decision
+  6).** D1.1 *sampled* the entry instead of running the midcourse corrector; this is decision 6's
+  brute-force batch (A) that the sampled-entry shortcut is unbiased — nav leg only (the Cr-prior
+  mismatch leg + the Φ-Jacobian quasi-Newton speedup stay separate follow-ons). Flies the **real
+  corrector** (the C0 path) over N=64 *combined* nav draws from the C1 nominal-cell Σ and reduces
+  vs the linear Φ/Σ map. **VALIDATED:** per-draw |miss − Φ·δ| = **0.01 %** of |miss| (combined-axis
+  superposition holds — C0's one-axis linearity extends to the joint draw, no cross-terms);
+  measured crossing σ **147 m** ≈ ΦΣΦᵀ **141.3 m** ≈ D1.1's **141 m** proxy (the per-unit entry
+  magnitude confirmed end-to-end, σ-consistency judged on a sample-size-aware band); and the actual
+  800 km hand-off displacement **68.9 m** is **2.13× smaller** than the crossing miss D1.1 fed the
+  terminal loop — so feeding the fully-developed crossing miss at the hand-off **over-stresses** the
+  loop (through the larger early-R noise), i.e. D1.1's entry proxy is conservative and its ~3 µrad
+  verdict is pessimistic (the safe direction). Remaining D1.x: the Cr-prior predict/execute mismatch
+  leg, the Φ-Jacobian warm-started quasi-Newton corrector (this batch is its validation reference),
+  nav-Σ-by-node-count → min nodes, MCC-2 scheduling, and the importance-sampling tail.
   **Multi-tracker nav revision (ADR 0019, post-D1.1) — DONE 2026-06-14.** Because the ~3 µrad
   condition rests on a single 3 µrad bench-calibratable distortion floor, the revision recovers
   capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early large-R noise
@@ -544,7 +560,8 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node
   count → **minimum node count**; nav error sampled from the C1 Σ (not a live UKF); Φ-Jacobian
   warm-started quasi-Newton (FD-Newton fallback) + process parallelism; **importance-sampling
-  tail** + brute-force validation batch, LinCov as pre-screen / control-variate / IS-designer
+  tail** + brute-force validation batch (the **corrector-in-loop validation DONE 2026-06-14** — see
+  the D1.x finding above), LinCov as pre-screen / control-variate / IS-designer
   (never replaces the tail). Headline **P(capture)** about the train centroid + centroid-drift
   (vs ±2 km) + scatter (vs plate) + propellant (<2 %) + perigee diagnostic + per-axis
   sensitivities → the **conditional** yes/no. **D2 — MPC value:** MPC vs the C baseline on the

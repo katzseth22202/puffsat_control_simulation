@@ -270,3 +270,44 @@ brute-force validation, MCC-2 scheduling, and the node-count Σ sweep stay later
   achievable grade. The honest D1.1 caveat: the entry σ is the C1/C2a *crossing* budget applied at
   the hand-off (a conservative proxy; the true hand-off-lateral Φ is a D1.x refinement), and the
   tail P(capture) wants the importance-sampling batch (decision 6), not a 16-unit empirical.
+
+## Implementation findings — D1.x corrector-in-loop validation (2026-06-14)
+
+The first D1.1 caveat, closed. D1.1 *sampled* each unit's hand-off entry from the linear C0/C1/C2a
+budget instead of running the midcourse corrector; this is decision 6's **brute-force validation
+batch (A)** that the sampled-entry shortcut is unbiased. Scope (user-confirmed): the **nav leg**
+only — the Cr-prior predict/execute mismatch leg and the Φ-Jacobian quasi-Newton speedup stay
+separate follow-ons. The pure reduction is `puffsat_sim/corrector_validation.py`; the JVM glue
+`runs/corrector_validation.py` flies the **real corrector** (the C0 path — `run_record` with
+`report_controller` + a predict-side nav offset, nominal coefficients/zero injection) over a batch
+of **combined** nav draws sampled from the C1 nominal-cell Σ, records the interception miss, and
+coasts the corrected execute state to the 800 km hand-off to measure the true lateral entry. Φ is a
+minimal C0 sweep and Σ the pure C1 LinCov nominal cell — both reused. The σ-consistency band is
+sample-size-aware (`max(0.15, 3/√(2N))`), so a smoke batch is judged honestly (a flat tolerance
+false-fails small N on RMS sampling noise — caught when the n=8 smoke read "inconsistent" at a
+19.5 % deviation that was < 1σ of sampling error).
+
+- **VALIDATED (N=64).** Three results triangulate D1.1's keystone:
+  1. **Linearity / superposition.** Per-draw `|miss − Φ·δ| = 0.01 %` of `|miss|`. C0 proved this
+     *one axis at a time*; here all six axes are perturbed together at realistic C1 magnitudes and
+     the residual is still ~0 — **no cross-terms**, so superposing the C0/C1/C2a budget legs (what
+     D1.1's sampled entry does) is sound. Bias **14 m**, within the sample-mean noise of zero.
+  2. **Magnitude (end-to-end).** Measured crossing-miss σ **147 m** ≈ `ΦΣΦᵀ` **141.3 m** ≈ D1.1's
+     **141 m** (`ENTRY_LATERAL_PERUNIT_M`) proxy. The real corrector reproduces the per-unit entry
+     magnitude D1.1 fed the terminal loop — the 141 m number is confirmed with the corrector in the
+     loop, not just by the C0 sensitivity.
+  3. **Hand-off conservatism.** The *actual* 800 km hand-off displacement is **68.9 m** —
+     **2.13× smaller** than the 141 m crossing miss D1.1 fed the loop as the entry. The terminal
+     loop must still null the fully-developed crossing miss (~141 m) regardless of where it starts,
+     so front-loading that as a static hand-off offset makes the loop face it earlier, through the
+     larger early-R (2603 km → 26 m at 10 µrad) noise — the binding D1.1 mechanism. So D1.1's entry
+     proxy **over-stresses** the loop: the ~3 µrad grade it derived is **conservative** (its verdict
+     is pessimistic, the safe direction).
+- **Net.** D1.1's "Φ-composed sampled entry + flown terminal" architecture is validated for the nav
+  leg: the corrector residual is linear and unbiased at the combined realistic draw, the fed entry
+  magnitude is right, and the crossing-budget proxy is conservative at the hand-off. D1's conditional
+  feasibility verdict stands and is, if anything, pessimistic on the entry stress.
+- **Remaining D1.x:** the Cr-prior predict/execute mismatch leg (the shared 149 m entry — needs a
+  `RunVariant` coefficient-mismatch knob); the **Φ-Jacobian warm-started quasi-Newton corrector**
+  (this brute-force batch is its validation reference); nav-Σ-by-node-count → min nodes; MCC-2
+  scheduling; the importance-sampling tail.
