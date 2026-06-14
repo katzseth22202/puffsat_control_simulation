@@ -100,3 +100,46 @@ on one precise calibration — and can we attack the early error at its source? 
   condition reachable **two independent ways** — one tighter detector (σ_θ gate) *or* fused cruder
   10 µrad detectors (this ADR) — so the load-bearing terminal-nav assumption is robust to the
   distortion floor, not a single point of failure.
+
+## Implementation findings — multi-tracker fusion gate (Stage 1, 2026-06-13)
+
+The pure gate (`puffsat_sim/tracker_fusion.py`, no JVM, building on `tracker_budget.py`), TDD.
+Both levers were quantified against the D1.1 capture-grade (3.2 µrad effective).
+
+- **The target-side array buys √N down to the smear common-mode floor.** A `Tracker`'s σ_θ splits
+  into the **independent** part (distortion ⊕ gyro ⊕ photon — separately bench-calibrated, so it
+  averages as σ_indep/√N) and the **common** part (`SMEAR_COMMON_SIGMA_RAD`, the same beacon imaged
+  by every detector, which √N cannot cross). Five 10 µrad detectors fuse to **1.62 µrad** at the
+  2603 km target range — **2.0× inside** the requirement — with **no phasing/baseline dependency**
+  (the √N is statistical, separation-agnostic; the X-pattern spread is for coverage and
+  common-boresight rejection, not precision). This confirms decision 1's "ranging is a red herring"
+  framing: the angles do all the lateral work.
+- **The close co-flyer attacks the early error at its source.** Adding the rocket at the
+  `COFLYER_RANGE_M` (500 km) design range — 5× closer than the target — drops the inverse-variance
+  fused grade to **0.76 µrad** (**4.2× inside**), a bigger lever than the array's √N because
+  σ_θ·R scales with range. The credit is real only if the rocket→target vector is pinned
+  independently of the long baseline (`COFLYER_RELGEOM_SIGMA_M`, the GNSS-pinned floor); whether the
+  rocket can *hold* that 500 km range and stay in the GNSS volume is the Stage 2 gate.
+
+## Implementation findings — co-flyer phasing gate (Stage 2, 2026-06-14)
+
+The JVM run (`runs/coflyer.py`) for Lever 2's gating unknown — phasing — feeding the pure
+`phasing_verdict`. The rocket orbit is **constructed directly** at the constant-semi-major-axis
+elements (perigee +100 km / apogee −100 km, co-phased in mean anomaly), since the maneuver that
+realizes them is a separate propulsion detail and the phasing question is purely geometric. Physics
+is J2 (a ~32 h coast geometry, consistent with the truth-validation coast), flown alongside the
+nominal descent and sampled across the 800→200 km terminal window.
+
+- **The constant-a maneuver holds the period exactly, so there is no secular drift.** +perigee /
+  −apogee by the same amount preserves `perigee_alt + apogee_alt` → `a` → period (an integration-test
+  invariant), and the rocket keeps the train's mean anomaly. Over the window the rocket↔centroid
+  separation peaks at only **125 km** — **well inside the 500 km angle-useful design range** the
+  fusion credits — so the σ_θ·R advantage Stage 1 banked is real, not assumed.
+- **The rocket stays in the GNSS volume and aloft through interception.** Its altitude over the
+  window is **295–879 km**, far below the **20 200 km GPS ceiling** (so an unlocked spaceborne
+  receiver pins the rocket→target vector) and above the 200 km crossing (raised perigee → it does
+  not decay through the window). Verdict: **PHASING-FEASIBLE** — the Lever-2 close-tracker credit
+  holds, and the conditional-verdict hedge of decision 2 stands.
+
+**Remaining ADR 0019 JVM work:** the C3b noise re-key (`runs/guidance` from a single-tracker σ_θ·R
+to the fused effective grade) and the D1.1 re-run (`runs/train`) at the fused grade.
