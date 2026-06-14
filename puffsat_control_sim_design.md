@@ -529,8 +529,16 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   terminal margin) — value the constellation for snapshot GDOP + pinning the rockets. A coplanar ring
   covers the binding *transverse* axis (normal matters ~50× less, C0); a shell adds the weak axis.
   PuffSat payload ~20 g / <1 W (~0.08 % of the bus) — the crypto ASIC is **not** the mass driver,
-  transmit power is the constraint. Deferred (not built): the GDOP/min-member sweep over ring-vs-shell
-  geometries against a measured Σ, and the constellation deployment/cost (a later rung).
+  transmit power is the constraint. **GDOP/min-member ring-vs-shell sweep DONE 2026-06-14**
+  (`gdop_sweep`/`GdopSweepFinding`/`format_gdop_sweep`): min members **shell 3 / ring 4** (the ring's
+  N=3 occults antipodally to 2 LOS → underdetermined), both already under the 0.66 mm/s target; the
+  **ring is ~1.42× tighter than the shell on the binding transverse axis at equal N** (every ring
+  member lies in-plane and reads the binding axis, the shell spends members on the weak orbit-normal
+  axis) — so a coplanar ring is the cheaper way to pin transverse, the shell only buys the normal
+  axis; and **σ_T ~ 1/√N** (shell TDOP·√N ≈ 2.0, flat) so 4× the members only halve accuracy →
+  beyond the minimum the gain is redundancy/GDOP, not accuracy, quantifying match-not-beat (decision
+  5). Deferred (not built): the sweep against a *measured* coast-arc Σ (this uses the analytic
+  carrier-phase σ_radial), and the constellation deployment/cost (a later rung).
   Remaining D1:
   train-mode `DispersionSpec`
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node

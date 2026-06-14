@@ -110,10 +110,19 @@ carry the two-way transponder.
 - **ADR 0011/0012 coordinator nodes:** the permanent constellation is their generalization; built, it
   replaces them for coast nav with *snapshot* GDOP at apogee (the C1 "min coordinator nodes / LOS
   diversity over arc" question becomes a constellation member-count + ring-vs-shell GDOP sweep).
-- **Build steps (not in this ADR):** a pure sizing module (`apogee_nav.py`: link budget + Doppler/velocity
-  budget + transponder mass/power, in the `tracker_budget.py` style, no JVM) and a GDOP / minimum-member
-  sweep would quantify the architecture. The constellation's *existence* is assumed here (per scope);
-  its deployment/cost is out of scope, deferred with the GMAT-class cross-checks toward a later rung.
+- **Build steps — BUILT 2026-06-14 (`apogee_nav.py`, pure, no JVM, `tracker_budget.py` style):** the
+  sizing module (link budget + Doppler/velocity budget + transponder mass/power) and the GDOP /
+  minimum-member ring-vs-shell sweep (`gdop_sweep`/`GdopSweepFinding`/`format_gdop_sweep`) now quantify
+  the architecture. Sweep findings: min members **shell 3 / ring 4** (the ring's N=3 occults
+  antipodally to 2 LOS, below the 3-LOS solve floor), both meeting the 0.66 mm/s target; the **ring is
+  ~1.42× tighter than the shell on the binding transverse axis at equal N** (in-plane members all read
+  the binding axis; the shell spends members on the weak orbit-normal axis) — a coplanar ring is the
+  cheaper way to pin transverse, the shell only adds the normal axis; **σ_T ~ 1/√N** (shell TDOP·√N ≈
+  2.0) so quadrupling members merely halves accuracy → beyond the minimum the gain is redundancy/GDOP,
+  not accuracy (quantifying decision 5's match-not-beat). The sweep runs against the analytic
+  carrier-phase σ_radial; a sweep against a *measured* coast-arc Σ, and the constellation's
+  *existence* / deployment / cost (assumed here per scope), stay deferred with the GMAT-class
+  cross-checks toward a later rung.
 - **Docs:** CONTEXT gains *Apogee nav constellation*, *Authenticated broadcast*, *Secure transponder /
   distance-bounding*; design §13 gains the Lever-3 signal spec.
 - **Untouched:** A/B, C0–C2a, C3, D1, and the ADR 0019 results. The match-not-beat spec keeps D1.1's
