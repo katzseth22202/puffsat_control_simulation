@@ -287,6 +287,32 @@ if 10 µrad is unmeetable the **Catch radius** story falls, so it blocks the MC.
 confusing it with the **Tracker grade** itself (the budget is what *achieving* that grade
 costs, not the grade).
 
+**Tracker array**:
+N independent target-side detectors (ADR 0019) fused to beat a single **Tracker grade** by
+**√N down to a common-mode floor** (correlated distortion + beacon-shape asymmetry). Independence
+is the whole game: separate optics, *separately bench-calibrated* distortion maps, each doing its
+own beacon-vs-its-own-star-field astrometry — then 5× 10 µrad → ~1.4 µrad. The X-pattern *spatial*
+spread is for **coverage + redundancy + common-boresight rejection, not precision** (√N is
+statistical, separation-agnostic). _Avoid_: crediting the baseline with precision, or expecting
+**ranging** to sharpen the lateral (a short baseline gives ~33 mrad — angles do the lateral work).
+
+**Co-flying tracker**:
+The reused launch rocket (ADR 0019) as a *close* terminal tracker (~500 km vs the target's
+2603 km → 5× less σ_θ·R), attacking the early large-R noise at its source. It tracks the **Train**
+*centroid* (shrinks the common early error; per-unit scatter stays with the target **Tracker
+array**). Load-bearing: the rocket→target vector must be pinned *independently* (unlocked
+spaceborne GNSS — the terminal phase is low-altitude, inside the GPS volume), not by inter-rocket
+ranging (which fixes range, not the long-baseline lateral). Gated on a **phasing** sim (can it stay
+close + low + non-decaying at the terminal window). _Avoid_: "they range to each other so they know
+the relative vector" (ranging ≠ lateral).
+
+**Effective σ_θ**:
+The *fused* relative-nav grade the PuffSat's ZEM loop actually sees (ADR 0019) — the
+inverse-variance combination of every **Tracker array** / **Co-flying tracker** measurement at its
+own range — as opposed to a single tracker's σ_θ. The D1.1 capture criterion reads against the
+effective σ_θ; the σ_θ **Tracker budget** is *per detector*, fusion on top. _Avoid_: conflating the
+per-detector σ_θ with the effective (system) σ_θ.
+
 ## Relationships
 
 - A **PhysicsConfig** contains zero or more **Perturbations**.

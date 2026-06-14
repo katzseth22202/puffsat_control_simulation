@@ -499,7 +499,20 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   defeating the significance gate that protects the zero-entry case. The terminal funnel *removes*
   the common-mode entry (homing), so the arrival **centroid drift ~0** and the ±2 km retarget is
   unstressed. Propellant ~0.9 % @ Isp 50, perigee ~65 km, ToA ≤ 0.7 ms. **Verdict: D1 feasible on
-  the C baseline conditional on the ~3 µrad grade — D2/MPC not triggered.** Remaining D1:
+  the C baseline conditional on the ~3 µrad grade — D2/MPC not triggered.**
+  **Multi-tracker nav revision (ADR 0019, post-D1.1 — grilled 2026-06-14, in progress).** Because
+  the ~3 µrad condition rests on a single 3 µrad bench-calibratable distortion floor, a revision
+  recovers capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early
+  large-R noise at its source. Three levers: (1) a **target-side detector array** — N independent
+  10 µrad detectors → σ_θ/√N down to a common-mode floor (5 → ~1.4 µrad; spread for coverage/
+  redundancy not precision; ranging a red herring for the lateral); (2) a **co-flying launch-rocket
+  close tracker** at ~500 km (5× less σ_θ·R, centroid-only; rocket→target vector GNSS-pinned at the
+  low-altitude terminal phase; gated on a phasing-feasibility sim); (3) **high-altitude nav infra**
+  (~150,000 km) for the midcourse entry offset (optional, not built — covered by the entry-σ sweep).
+  Staged build: pure `tracker_fusion.py` fusion gate → `runs/coflyer.py` phasing check → re-key the
+  C3b noise to the fused effective σ_θ + re-run D1.1 (the capture-recovery payoff). Bounded
+  re-check: A/B/C0–C2a untouched; the σ_θ gate's 3.2 µrad *per detector* stands, fusion on top.
+  Remaining D1:
   train-mode `DispersionSpec`
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node
   count → **minimum node count**; nav error sampled from the C1 Σ (not a live UKF); Φ-Jacobian
