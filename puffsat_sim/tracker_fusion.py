@@ -40,6 +40,13 @@ TARGET_RANGE_M: float = 2603e3  # the hand-off→target range (D1.1 measured)
 COFLYER_RANGE_M: float = 500e3  # the co-flying launch rocket's design range to the train centroid
 COFLYER_RELGEOM_SIGMA_M: float = 2.0  # GNSS-pinned rocket→target lateral (low-altitude terminal)
 
+# The co-flyer phasing gate (Lever 2; the JVM check is :mod:`puffsat_sim.runs.coflyer`): through
+# the PuffSat terminal window the rocket must stay close enough that its angle is the strong lever
+# (≤ the design range, so the σ_θ·R advantage the fusion credits actually holds) AND low enough to
+# sit in the unlocked-spaceborne-GNSS volume (below the GPS constellation) — which is what pins its
+# rocket→target vector independently of the long baseline.
+GPS_CEILING_M: float = 20_200e3  # GPS constellation altitude — unlocked spaceborne receiver volume
+
 # The D1.1-validated capture-grade: the sweep cleared the σ ≤ 1.65 m criterion at 3.2 µrad (and
 # failed at 10 µrad), so an effective σ_θ at or under this reads as capture-grade.
 D1_CAPTURE_GRADE_SIGMA_THETA_RAD: float = 3.2e-6
@@ -155,3 +162,72 @@ def format_tracker_fusion(finding: TrackerFusionFinding) -> str:
         f"  → {verdict}: cruder 10 µrad detectors fused recover the ~3 µrad D1.1 requirement.",
     ]
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class CoflyerPhasing:
+    """The co-flying rocket's phasing feasibility over the PuffSat 800→200 km window (ADR 0019).
+
+    The Lever-2 gate: a constant-semi-major-axis maneuver (raise perigee, lower apogee) keeps the
+    rocket phase-locked to the descending train (same period → no secular drift); the question is
+    whether, through the terminal window, it stays close (the σ_θ·R lever holds) and low (in the
+    GNSS volume that pins its rocket→target vector).  Fed by :mod:`puffsat_sim.runs.coflyer`.
+    """
+
+    max_range_m: float  # peak rocket↔centroid separation through the window
+    max_rocket_alt_m: float  # peak rocket altitude in the window (vs the GPS ceiling)
+    min_rocket_alt_m: float  # lowest rocket altitude — is it still aloft at interception?
+    window_alt_hi_m: float
+    window_alt_lo_m: float
+    angle_useful_range_m: float = COFLYER_RANGE_M
+    gps_ceiling_m: float = GPS_CEILING_M
+
+    @property
+    def range_ok(self) -> bool:
+        """Stays within the design range the fusion credits the co-flyer's σ_θ·R advantage at."""
+        return self.max_range_m <= self.angle_useful_range_m
+
+    @property
+    def gps_ok(self) -> bool:
+        """Stays inside the unlocked-spaceborne-GNSS volume (below the GPS constellation)."""
+        return self.max_rocket_alt_m <= self.gps_ceiling_m
+
+    @property
+    def feasible(self) -> bool:
+        return self.range_ok and self.gps_ok
+
+
+def phasing_verdict(
+    window_ranges_m: Sequence[float],
+    window_rocket_alts_m: Sequence[float],
+    window_alt_hi_m: float,
+    window_alt_lo_m: float,
+) -> CoflyerPhasing:
+    """Reduce the sampled rocket↔centroid range and rocket altitude over the window to a verdict."""
+    return CoflyerPhasing(
+        max_range_m=max(window_ranges_m),
+        max_rocket_alt_m=max(window_rocket_alts_m),
+        min_rocket_alt_m=min(window_rocket_alts_m),
+        window_alt_hi_m=window_alt_hi_m,
+        window_alt_lo_m=window_alt_lo_m,
+    )
+
+
+def format_coflyer_phasing(finding: CoflyerPhasing) -> str:
+    """One-screen co-flyer phasing-feasibility report (ADR 0019, the Lever-2 gate)."""
+    verdict = "PHASING-FEASIBLE" if finding.feasible else "NOT phasing-feasible"
+    range_mark = "✓" if finding.range_ok else "✗"
+    gps_mark = "✓" if finding.gps_ok else "✗"
+    return "\n".join(
+        [
+            "Co-flying rocket phasing feasibility (ADR 0019, Lever 2)",
+            f"  PuffSat window {finding.window_alt_hi_m / 1e3:.0f}"
+            f"→{finding.window_alt_lo_m / 1e3:.0f} km altitude.",
+            f"  {range_mark} max rocket↔centroid range {finding.max_range_m / 1e3:.0f} km"
+            f" vs the {finding.angle_useful_range_m / 1e3:.0f} km angle-useful design range.",
+            f"  {gps_mark} rocket altitude {finding.min_rocket_alt_m / 1e3:.0f}–"
+            f"{finding.max_rocket_alt_m / 1e3:.0f} km"
+            f" vs the {finding.gps_ceiling_m / 1e3:.0f} km GPS ceiling.",
+            f"  → {verdict}: the co-flyer lever {'holds' if finding.feasible else 'is dropped'}.",
+        ]
+    )

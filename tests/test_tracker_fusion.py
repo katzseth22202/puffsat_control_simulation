@@ -8,16 +8,20 @@ from puffsat_sim.tracker_fusion import (
     COFLYER_RANGE_M,
     D1_CAPTURE_GRADE_SIGMA_THETA_RAD,
     DETECTOR_INDEP_SIGMA_RAD,
+    GPS_CEILING_M,
     SMEAR_COMMON_SIGMA_RAD,
     TARGET_RANGE_M,
+    CoflyerPhasing,
     Tracker,
     TrackerFusionFinding,
     angular_sigma_theta_rad,
     coflyer,
     effective_sigma_theta_rad,
+    format_coflyer_phasing,
     format_tracker_fusion,
     fuse_lateral_sigma_m,
     lateral_sigma_m,
+    phasing_verdict,
     target_array,
     tracker_fusion_finding,
 )
@@ -111,3 +115,50 @@ def test_format_reports_effective_grade_and_verdict() -> None:
     assert "effective" in text.lower()
     assert "µrad" in text or "urad" in text
     assert "capture" in text.lower()
+
+
+def test_phasing_verdict_reduces_window_samples_to_max_range_and_alt_band() -> None:
+    finding = phasing_verdict(
+        window_ranges_m=[120e3, 300e3, 220e3],
+        window_rocket_alts_m=[800e3, 400e3, 160e3],
+        window_alt_hi_m=800e3,
+        window_alt_lo_m=200e3,
+    )
+    assert math.isclose(finding.max_range_m, 300e3)
+    assert math.isclose(finding.max_rocket_alt_m, 800e3)
+    assert math.isclose(finding.min_rocket_alt_m, 160e3)
+
+
+def test_phasing_is_feasible_when_close_and_in_the_gps_volume() -> None:
+    # Within 500 km of the centroid and well below the GPS constellation ceiling.
+    finding = phasing_verdict([120e3, 300e3], [800e3, 160e3], 800e3, 200e3)
+    assert finding.range_ok
+    assert finding.gps_ok
+    assert finding.feasible
+
+
+def test_phasing_fails_when_drifting_beyond_the_angle_useful_range() -> None:
+    finding = phasing_verdict([400e3, 900e3], [600e3, 200e3], 800e3, 200e3)
+    assert not finding.range_ok
+    assert not finding.feasible
+
+
+def test_phasing_fails_when_above_the_gps_ceiling() -> None:
+    finding = phasing_verdict([100e3], [GPS_CEILING_M + 1e3], 800e3, 200e3)
+    assert finding.range_ok
+    assert not finding.gps_ok
+    assert not finding.feasible
+
+
+def test_format_coflyer_phasing_reports_both_legs_and_verdict() -> None:
+    text = format_coflyer_phasing(phasing_verdict([120e3], [400e3], 800e3, 200e3))
+    assert "phasing" in text.lower()
+    assert "GPS" in text
+    assert "range" in text.lower()
+
+
+def test_coflyer_phasing_is_a_frozen_value_type() -> None:
+    finding = phasing_verdict([1.0], [2.0], 800e3, 200e3)
+    assert isinstance(finding, CoflyerPhasing)
+    assert finding.angle_useful_range_m == COFLYER_RANGE_M
+    assert finding.gps_ceiling_m == GPS_CEILING_M
