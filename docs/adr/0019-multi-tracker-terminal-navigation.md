@@ -141,5 +141,29 @@ nominal descent and sampled across the 800→200 km terminal window.
   not decay through the window). Verdict: **PHASING-FEASIBLE** — the Lever-2 close-tracker credit
   holds, and the conditional-verdict hedge of decision 2 stands.
 
-**Remaining ADR 0019 JVM work:** the C3b noise re-key (`runs/guidance` from a single-tracker σ_θ·R
-to the fused effective grade) and the D1.1 re-run (`runs/train`) at the fused grade.
+## Implementation findings — C3b noise re-key + D1.1 re-run (2026-06-14)
+
+Decision 4 made runnable. The re-key is **one pure function** — `tracker_fusion.fused_tracker_grade`
+collapses a multi-tracker architecture into the C3b loop's `TrackerGrade` (effective σ_θ at the
+target design range + the unchanged along-LOS ranging σ). The C3b noise model (`guidance.NavNoiseProcess`)
+already consumed a scalar σ_θ·R, so fusion needed **no new noise code**; `runs/train.run_train_dispersion`
+gains a `trackers=` path that flies the train at the fused grade, and `fused_train_rerun_report`
+re-runs D1.1 across the architectures over one shared hand-off context.
+
+- **The re-run closes the conditional verdict.** Flown at the **legacy single-tracker 10 µrad
+  ceiling**, D1.1 fails exactly as before (scatter σ **5.21 m** vs ≤1.65 m, **50 % capture**). The
+  fused architectures recover capture-grade with margin that tracks the effective grade:
+  single target detector (σ_θ gate, 3.18 µrad) σ **1.17 m** / 100 %; **target 5-array** (Lever 1,
+  1.62 µrad) σ **0.58 m** / 100 %; **target 5-array + co-flyer** (Levers 1+2, 0.76 µrad) σ **0.21 m**
+  / 100 %. Scatter σ falls ~linearly with the effective grade — the σ_θ·R early-noise mechanism D1.1
+  identified, now shrunk at its source. So D1's "feasible conditional on ~3 µrad" is **delivered**:
+  cruder detectors fused reach the grade, two independent ways.
+- **The cost stays inside budget.** Worst-unit mission Δv lands 0.77–1.03 % @ Isp 50 across all
+  architectures (well under 2 %), and perigee holds ~65 km (deorbit-good). The co-flyer's tighter
+  scatter does not buy lower Δv (the funnel still pays for each unit's entry); its value is capture
+  margin against the distortion-floor risk, exactly the decision-2 hedge.
+- **What did *not* change (decision 4's "bounded").** The C3b sweep's σ_θ axis is now re-read as the
+  *system* (fused) grade — its capture characterization (3.2 µrad capture-grade, 10 µrad fails)
+  **stands** as the reference curve fusion sits on. The σ_θ budget gate (3.2 µrad per detector) and
+  the A/B + C0–C2a results are untouched. **ADR 0019 is complete** (all three levers: array + co-flyer
+  built, high-altitude infra recorded as an option).
