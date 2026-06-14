@@ -338,6 +338,7 @@ class GuidanceRun:
     miss: PlateMiss
     plan: FeedforwardPlan
     saturated_fraction: float
+    perigee_alt_m: float = 0.0  # the crossing perigee (Rung-D diagnostic, low = good)
 
 
 @dataclass(frozen=True)

@@ -37,7 +37,7 @@ from puffsat_sim.descent import (
     to_absolute_date,
     vec3,
 )
-from puffsat_sim.dispersion import Vec3, rtn_basis, rtn_to_cartesian
+from puffsat_sim.dispersion import Vec3, rtn_basis
 from puffsat_sim.guidance import (
     ZEM_GAIN,
     GuidanceCell,
@@ -154,6 +154,23 @@ def _feedforward_accel(plan: FeedforwardPlan, starts_s: np.ndarray, t_s: float) 
     return (accel * cmd.direction[0], accel * cmd.direction[1], accel * cmd.direction[2])
 
 
+def _handoff_lateral_offset(pv: Any, entry_offset_lateral_m: tuple[float, float]) -> Vec3:
+    """A 2-D lateral hand-off displacement in the ⊥v plane: orbit-normal N + in-plane ⊥v.
+
+    Both axes are exactly ⊥ velocity (N by construction; ``N×v̂`` in the orbit plane), so the
+    funnel-entry error stays a pure lateral miss — the C3b scalar normal offset is the
+    ``(0, b)`` case, the D1.1 train entry is the full 2-D draw.
+    """
+    n_hat = np.array(rtn_basis(vec3(pv.getPosition()), vec3(pv.getVelocity()))[2], dtype=np.float64)
+    v_hat = np.array(vec3(pv.getVelocity()), dtype=np.float64)
+    v_hat /= np.linalg.norm(v_hat)
+    l_hat = np.cross(n_hat, v_hat)
+    l_hat /= np.linalg.norm(l_hat)
+    a, b = entry_offset_lateral_m
+    off = a * l_hat + b * n_hat
+    return (float(off[0]), float(off[1]), float(off[2]))
+
+
 def run_guidance(
     ctx: GuidanceContext,
     entry_offset_m: float = 0.0,
@@ -162,20 +179,24 @@ def run_guidance(
     rng: np.random.Generator | None = None,
     truth_physics: PhysicsConfig | None = None,
     gain: float = ZEM_GAIN,
+    entry_offset_lateral_m: tuple[float, float] | None = None,
 ) -> GuidanceRun:
     """Fly one closed-loop terminal descent and read the arrival in the plate frame.
 
-    ``entry_offset_m`` displaces the hand-off state along the RTN normal axis (pure
-    lateral, exactly ⊥ v) — the funnel-entry error the loop must null.  ``grade`` is the
-    injected nav noise (``None`` = perfect knowledge); ``truth_physics`` diverges the
-    truth drag from the nominal-planned feedforward (the dispersed-drag cells).
+    The hand-off state is displaced by the funnel-entry error the loop must null: the C3b
+    sweep passes the scalar ``entry_offset_m`` (RTN normal axis); the D1.1 train ensemble
+    passes the 2-D ``entry_offset_lateral_m`` (in-plane ⊥v, orbit-normal) — the Φ-composed
+    midcourse residual.  ``grade`` is the injected nav noise (``None`` = perfect knowledge);
+    ``truth_physics`` diverges the truth drag from the nominal-planned feedforward.
     """
     physics = truth_physics if truth_physics is not None else ctx.physics
     step = min(TERMINAL_FIXED_STEP_S, control_period_s)
 
     pv = ctx.handoff.getPVCoordinates()
-    basis = rtn_basis(vec3(pv.getPosition()), vec3(pv.getVelocity()))
-    off = rtn_to_cartesian((0.0, 0.0, entry_offset_m), basis)
+    lateral = (
+        entry_offset_lateral_m if entry_offset_lateral_m is not None else (0.0, entry_offset_m)
+    )
+    off = _handoff_lateral_offset(pv, lateral)
     orbit = CartesianOrbit(
         TimeStampedPVCoordinates(
             ctx.handoff.getDate(),
@@ -271,6 +292,7 @@ def run_guidance(
         ),
         plan=executed_plan(tuple(commands), PUFFSAT_WET_MASS_KG, saturated=saturated_ticks > 0),
         saturated_fraction=saturated_ticks / ticks if ticks else 0.0,
+        perigee_alt_m=crossing.perigee_alt_m,
     )
 
 
