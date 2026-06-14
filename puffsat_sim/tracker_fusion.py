@@ -25,7 +25,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from puffsat_sim.anti_drag import PEAK_THRUST_LIMIT_N
-from puffsat_sim.guidance import homing_floor_m
+from puffsat_sim.guidance import TrackerGrade, homing_floor_m
 
 # Per-detector σ_θ split (reproducing the σ_θ budget gate's 3.2 µrad RSS, ADR 0018): the
 # independent part (distortion 3.0 ⊕ gyro 0.58 ⊕ photon 0.01 µrad — separately calibrated, own
@@ -39,6 +39,12 @@ SMEAR_COMMON_SIGMA_RAD: float = 0.87e-6
 TARGET_RANGE_M: float = 2603e3  # the hand-off→target range (D1.1 measured)
 COFLYER_RANGE_M: float = 500e3  # the co-flying launch rocket's design range to the train centroid
 COFLYER_RELGEOM_SIGMA_M: float = 2.0  # GNSS-pinned rocket→target lateral (low-altitude terminal)
+
+# The ADR 0019 architecture sizing + the C3b along-LOS ranging σ the fused grade carries unchanged
+# (fusion only re-keys the lateral σ_θ; ranging σ matches GuidanceSweepSpec / TrainDispersionSpec).
+ARRAY_N_DETECTORS: int = 5  # the target X-pattern (decision 1: 5 independent detectors)
+COFLYER_N_DETECTORS: int = 3  # the co-flying rocket's detector count (Stage 1's 0.76 µrad point)
+DEFAULT_RANGING_SIGMA_M: float = 1.0
 
 # The co-flyer phasing gate (Lever 2; the JVM check is :mod:`puffsat_sim.runs.coflyer`): through
 # the PuffSat terminal window the rocket must stay close enough that its angle is the strong lever
@@ -98,6 +104,40 @@ def coflyer(n_detectors: int) -> Tracker:
     """The co-flying launch rocket: a close platform with the GNSS-pinned rel-geometry floor."""
     return Tracker(
         range_m=COFLYER_RANGE_M, n_detectors=n_detectors, rel_geom_sigma_m=COFLYER_RELGEOM_SIGMA_M
+    )
+
+
+def single_target_detector() -> tuple[Tracker, ...]:
+    """The baseline σ_θ-gate architecture: one target detector (the D1.1 single-tracker grade)."""
+    return (target_array(1),)
+
+
+def target_array_only() -> tuple[Tracker, ...]:
+    """ADR 0019 Lever 1 alone: the N-detector target array (no co-flyer)."""
+    return (target_array(ARRAY_N_DETECTORS),)
+
+
+def array_with_coflyer() -> tuple[Tracker, ...]:
+    """The full ADR 0019 architecture: the target array fused with the close co-flying rocket."""
+    return (target_array(ARRAY_N_DETECTORS), coflyer(COFLYER_N_DETECTORS))
+
+
+def fused_tracker_grade(
+    trackers: Sequence[Tracker],
+    design_range_m: float = TARGET_RANGE_M,
+    sigma_range_m: float = DEFAULT_RANGING_SIGMA_M,
+) -> TrackerGrade:
+    """Re-key a multi-tracker architecture into the C3b/D1.1 loop's :class:`TrackerGrade`.
+
+    ADR 0019 decision 4: the terminal-nav grade is re-read as *per-detector*; the system grade
+    the ZEM loop sees is the **fused effective σ_θ** at the target design range.  The C3b noise
+    model already consumes a scalar ``sigma_theta_rad`` (its σ_θ·R lateral draw), so fusion needs
+    no new noise code — only this grade construction.  Ranging σ is unchanged by fusion.
+    """
+    fused = fuse_lateral_sigma_m(trackers)
+    return TrackerGrade(
+        sigma_theta_rad=effective_sigma_theta_rad(fused, design_range_m),
+        sigma_range_m=sigma_range_m,
     )
 
 

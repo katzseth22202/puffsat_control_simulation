@@ -5,8 +5,11 @@ from __future__ import annotations
 import math
 
 from puffsat_sim.tracker_fusion import (
+    ARRAY_N_DETECTORS,
+    COFLYER_N_DETECTORS,
     COFLYER_RANGE_M,
     D1_CAPTURE_GRADE_SIGMA_THETA_RAD,
+    DEFAULT_RANGING_SIGMA_M,
     DETECTOR_INDEP_SIGMA_RAD,
     GPS_CEILING_M,
     SMEAR_COMMON_SIGMA_RAD,
@@ -15,14 +18,18 @@ from puffsat_sim.tracker_fusion import (
     Tracker,
     TrackerFusionFinding,
     angular_sigma_theta_rad,
+    array_with_coflyer,
     coflyer,
     effective_sigma_theta_rad,
     format_coflyer_phasing,
     format_tracker_fusion,
     fuse_lateral_sigma_m,
+    fused_tracker_grade,
     lateral_sigma_m,
     phasing_verdict,
+    single_target_detector,
     target_array,
+    target_array_only,
     tracker_fusion_finding,
 )
 
@@ -115,6 +122,44 @@ def test_format_reports_effective_grade_and_verdict() -> None:
     assert "effective" in text.lower()
     assert "µrad" in text or "urad" in text
     assert "capture" in text.lower()
+
+
+def test_architectures_pin_the_adr0019_detector_counts() -> None:
+    assert single_target_detector() == (target_array(1),)
+    (array,) = target_array_only()
+    assert array.n_detectors == ARRAY_N_DETECTORS and array.range_m == TARGET_RANGE_M
+    target, rocket = array_with_coflyer()
+    assert target.n_detectors == ARRAY_N_DETECTORS
+    assert rocket.n_detectors == COFLYER_N_DETECTORS and rocket.range_m == COFLYER_RANGE_M
+
+
+def test_fused_tracker_grade_carries_the_effective_sigma_theta_and_ranging_sigma() -> None:
+    # The re-key (ADR 0019 dec 4): the loop's σ_θ is the architecture's fused effective grade.
+    trackers = array_with_coflyer()
+    grade = fused_tracker_grade(trackers)
+    assert grade.sigma_range_m == DEFAULT_RANGING_SIGMA_M
+    assert grade.sigma_theta_rad is not None
+    assert math.isclose(
+        grade.sigma_theta_rad, tracker_fusion_finding(trackers).effective_sigma_theta_rad
+    )
+
+
+def test_fused_grade_recovers_capture_where_the_single_tracker_ceiling_fails() -> None:
+    # The 10 µrad single-tracker ceiling that D1.1 failed at...
+    single_ceiling = fused_tracker_grade(
+        [Tracker(range_m=TARGET_RANGE_M, n_detectors=1, sigma_indep_rad=10e-6)]
+    )
+    assert single_ceiling.sigma_theta_rad is not None
+    assert single_ceiling.sigma_theta_rad > D1_CAPTURE_GRADE_SIGMA_THETA_RAD
+    # ...is recovered to capture-grade by the fused target array + co-flyer.
+    fused = fused_tracker_grade(array_with_coflyer())
+    assert fused.sigma_theta_rad is not None
+    assert fused.sigma_theta_rad <= D1_CAPTURE_GRADE_SIGMA_THETA_RAD
+
+
+def test_fused_tracker_grade_respects_an_overridden_ranging_sigma() -> None:
+    grade = fused_tracker_grade(target_array_only(), sigma_range_m=0.2)
+    assert grade.sigma_range_m == 0.2
 
 
 def test_phasing_verdict_reduces_window_samples_to_max_range_and_alt_band() -> None:
