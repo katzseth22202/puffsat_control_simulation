@@ -500,18 +500,37 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   the common-mode entry (homing), so the arrival **centroid drift ~0** and the ±2 km retarget is
   unstressed. Propellant ~0.9 % @ Isp 50, perigee ~65 km, ToA ≤ 0.7 ms. **Verdict: D1 feasible on
   the C baseline conditional on the ~3 µrad grade — D2/MPC not triggered.**
-  **Multi-tracker nav revision (ADR 0019, post-D1.1 — grilled 2026-06-14, in progress).** Because
-  the ~3 µrad condition rests on a single 3 µrad bench-calibratable distortion floor, a revision
-  recovers capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early
-  large-R noise at its source. Three levers: (1) a **target-side detector array** — N independent
-  10 µrad detectors → σ_θ/√N down to a common-mode floor (5 → ~1.4 µrad; spread for coverage/
-  redundancy not precision; ranging a red herring for the lateral); (2) a **co-flying launch-rocket
-  close tracker** at ~500 km (5× less σ_θ·R, centroid-only; rocket→target vector GNSS-pinned at the
-  low-altitude terminal phase; gated on a phasing-feasibility sim); (3) **high-altitude nav infra**
-  (~150,000 km) for the midcourse entry offset (optional, not built — covered by the entry-σ sweep).
-  Staged build: pure `tracker_fusion.py` fusion gate → `runs/coflyer.py` phasing check → re-key the
-  C3b noise to the fused effective σ_θ + re-run D1.1 (the capture-recovery payoff). Bounded
-  re-check: A/B/C0–C2a untouched; the σ_θ gate's 3.2 µrad *per detector* stands, fusion on top.
+  **Multi-tracker nav revision (ADR 0019, post-D1.1) — DONE 2026-06-14.** Because the ~3 µrad
+  condition rests on a single 3 µrad bench-calibratable distortion floor, the revision recovers
+  capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early large-R noise
+  at its source. Three levers: (1) a **target-side detector array** — N independent detectors →
+  σ_θ/√N down to a common-mode floor (5 → ~1.6 µrad; spread for coverage/redundancy not precision;
+  ranging a red herring for the lateral); (2) a **co-flying launch-rocket close tracker** at ~500 km
+  (5× less σ_θ·R, centroid-only; rocket→target vector GNSS-pinned at the low-altitude terminal
+  phase); (3) **high-altitude nav infra** (~150,000 km) for the midcourse entry offset (the optional
+  Lever 3 — now specced in **ADR 0020**, below). Built pure `tracker_fusion.py` fusion gate +
+  `runs/coflyer.py` phasing check (**PHASING-FEASIBLE** — 125 km range, 295–879 km alt) + the C3b
+  noise re-key to the fused effective σ_θ + the D1.1 re-run: the **10 µrad ceiling FAILS** (σ 5.21 m
+  / 50 %), the **fused 5-array (1.62 µrad → σ 0.58 m) and +co-flyer (0.76 µrad → σ 0.21 m) recover
+  capture-grade** (100 %, <2 % propellant) — so D1's ~3 µrad condition is met two independent ways.
+  Bounded re-check held: A/B/C0–C2a untouched; the σ_θ gate's 3.2 µrad *per detector* stands.
+  **Lever 3 — apogee nav constellation (ADR 0020) — sizing DONE 2026-06-14
+  (`puffsat_sim/apogee_nav.py`, pure, no JVM).** Graduates the optional high-altitude infra to a
+  specced signal architecture for the **coast/apogee-state** nav the corrector consumes (a different
+  regime from terminal homing; GNSS can't reach apogee). **Ka-band authenticated broadcast** (no
+  atmosphere → no ionospheric term + free high frequency for velocity sensitivity; not L-band GNSS,
+  not laser — point-to-point is the wrong shape for simultaneous multi-participant multilateration);
+  **PuffSat one-way passive** (sub-gram verify-only ASIC, no transmitter — downlink closes ~34 dB-Hz
+  at a 1 m / 10 W Ka dish); the **rockets carry the two-way crypto-ns transponder** (distance-bounding
+  anti-spoof + pinning their absolute states, strengthening Lever 2); anti-jam = processing gain +
+  deep-space geometry, crypto = anti-spoof. **Accuracy: match, don't beat** — target σ_Tvel ≈
+  0.66 mm/s / ~140 m (= C1, the entry budget D1.1 flies); the snapshot velocity GDOP meets it with
+  **N ≈ 3 shell members** at ~16× margin, so tighter is redundant (fusion already gives 4.2×
+  terminal margin) — value the constellation for snapshot GDOP + pinning the rockets. A coplanar ring
+  covers the binding *transverse* axis (normal matters ~50× less, C0); a shell adds the weak axis.
+  PuffSat payload ~20 g / <1 W (~0.08 % of the bus) — the crypto ASIC is **not** the mass driver,
+  transmit power is the constraint. Deferred (not built): the GDOP/min-member sweep over ring-vs-shell
+  geometries against a measured Σ, and the constellation deployment/cost (a later rung).
   Remaining D1:
   train-mode `DispersionSpec`
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node

@@ -313,6 +313,38 @@ own range — as opposed to a single tracker's σ_θ. The D1.1 capture criterion
 effective σ_θ; the σ_θ **Tracker budget** is *per detector*, fusion on top. _Avoid_: conflating the
 per-detector σ_θ with the effective (system) σ_θ.
 
+**Apogee nav constellation** (Lever 3):
+A permanent ~150,000 km nav infrastructure (ADR 0020) that pins the **coast/apogee-state** nav the
+**Differential corrector** consumes — a *different regime* from terminal homing, and one GNSS cannot
+serve (GPS at 20,200 km vs apogee at 150,000 km). It generalizes the **Coordinator node** into
+permanent, well-characterized *snapshot* GDOP at apogee. Signal architecture (sized pure in
+`apogee_nav.py`): **Ka-band authenticated broadcast** (no atmosphere → no ionospheric term + free
+high frequency for velocity sensitivity; not L-band GNSS, not laser — laser is point-to-point, wrong
+for simultaneous multilateration and kept terminal-phase), **omni PuffSat / gain on the infra**
+(ADR 0011 dec-7). The binding axis is apogee *transverse velocity*; a coplanar ring covers it (the
+normal axis matters ~50× less, C0), a shell adds the weak axis. _Avoid_: "it's just GNSS at altitude"
+(GNSS can't reach apogee, and the regime/geometry differ); conflating it with terminal **Tracker**
+nav (it is the coast regime).
+
+**Match-not-beat** (apogee nav accuracy):
+ADR 0020's accuracy decision: the **Apogee nav constellation** should *match* the C1 grade
+(σ_Tvel ≈ 0.66 mm/s / ~140 m — the per-unit entry budget D1.1 flies), not push tighter. After
+ADR 0019 the binding lever is the *terminal* fused **Effective σ_θ** (already 4.2× capture margin),
+so tighter apogee nav is redundant; the only payoff — substituting for the fusion hedge so a bare
+10 µrad detector passes — needs ~3× tighter (~45 m), a worse trade than the fusion it would replace.
+Better-than-140 m from good GDOP is *free* independent margin, not a target. _Avoid_: reading the
+constellation's value as a tighter number (it is snapshot GDOP + pinning the rockets).
+
+**Authenticated broadcast / secure transponder**:
+The ADR 0020 anti-tamper split. **Authenticated broadcast** — the constellation cryptographically
+signs the one-way nav message (OSNMA-style), verified by a sub-gram ASIC on the **passive** PuffSat
+(no transmitter) — defeats *spoofing*. The **secure transponder** — a two-way, key-determined,
+nanosecond-exact turnaround delay (cryptographic *distance-bounding* + round-trip range) — rides the
+mass/power-unconstrained **rockets**, not the PuffSat. *Anti-jam* is a separate mechanism: spread-
+spectrum processing gain + directional antennas + the deep-space regime, **not** crypto. _Avoid_:
+"crypto stops jamming" (crypto is anti-spoof; geometry + processing gain are anti-jam); putting the
+two-way transponder on the PuffSat (transmit power, not mass, is why it stays one-way).
+
 ## Relationships
 
 - A **PhysicsConfig** contains zero or more **Perturbations**.
