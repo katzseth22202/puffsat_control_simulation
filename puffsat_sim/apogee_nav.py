@@ -221,6 +221,191 @@ def min_members_for_target(
     return None
 
 
+# --- GDOP / min-member sweep (ring vs shell) -----------------------------------------------------
+# The member counts the sweep walks: dense at the low end (where the minimum lives) and geometric
+# beyond, far enough to read the 1/√N DOP falloff off the asymptote.
+DEFAULT_SWEEP_COUNTS: tuple[int, ...] = (3, 4, 6, 8, 12, 16, 24, 32, 48, 64)
+
+
+def _transverse_row(
+    n_members: int, geometry: str, sigma_radial_m_s: float
+) -> tuple[float, bool, bool, int]:
+    """``(σ_T, transverse_observable, normal_observable, usable_LOS)`` for one geometry/count.
+
+    "Well-posed" matches :func:`min_members_for_target`: ≥3 usable (Earth-unoccluded) LOS *and* the
+    transverse axis in the geometry's row space.  Below that the velocity solve is underdetermined
+    (e.g. the coplanar ring at N=3 occults antipodally to 2 LOS), so σ_T is reported as ``inf``.
+    """
+    los = constellation_los_units(n_members, geometry)
+    count = len(los)
+    transverse_observable = count >= 3 and axis_observable(los, TRANSVERSE_AXIS)
+    sigma = (
+        transverse_velocity_sigma_m_s(los, sigma_radial_m_s) if transverse_observable else math.inf
+    )
+    normal_observable = count >= 3 and axis_observable(los, NORMAL_AXIS)
+    return sigma, transverse_observable, normal_observable, count
+
+
+@dataclass(frozen=True)
+class GdopSweepPoint:
+    """One member-count row of the ring-vs-shell apogee-velocity GDOP sweep."""
+
+    n_members: int
+    shell_transverse_sigma_m_s: float
+    shell_transverse_observable: bool
+    shell_normal_observable: bool
+    shell_los_count: int
+    ring_transverse_sigma_m_s: float
+    ring_transverse_observable: bool
+    ring_normal_observable: bool
+    ring_los_count: int
+
+
+def gdop_sweep(
+    sigma_radial_m_s: float, member_counts: tuple[int, ...] = DEFAULT_SWEEP_COUNTS
+) -> tuple[GdopSweepPoint, ...]:
+    """Transverse-velocity σ vs member count for both ring and shell geometries."""
+    points = []
+    for n in member_counts:
+        shell = _transverse_row(n, "shell", sigma_radial_m_s)
+        ring = _transverse_row(n, "ring", sigma_radial_m_s)
+        points.append(
+            GdopSweepPoint(
+                n_members=n,
+                shell_transverse_sigma_m_s=shell[0],
+                shell_transverse_observable=shell[1],
+                shell_normal_observable=shell[2],
+                shell_los_count=shell[3],
+                ring_transverse_sigma_m_s=ring[0],
+                ring_transverse_observable=ring[1],
+                ring_normal_observable=ring[2],
+                ring_los_count=ring[3],
+            )
+        )
+    return tuple(points)
+
+
+@dataclass(frozen=True)
+class GdopSweepFinding:
+    """The ADR 0020 ring-vs-shell GDOP sweep: the member-count curve plus its two reads."""
+
+    radial_velocity_sigma_m_s: float
+    points: tuple[GdopSweepPoint, ...]
+    min_members_shell: int | None
+    min_members_ring: int | None
+    target_tvel_sigma_m_s: float = TARGET_TVEL_SIGMA_M_S
+    required_tvel_sigma_m_s: float = REQUIRED_TVEL_SIGMA_M_S
+
+    @property
+    def _largest_common_point(self) -> GdopSweepPoint:
+        """The biggest swept count where both geometries are well-posed (the asymptotic read)."""
+        common = [
+            p for p in self.points if p.shell_transverse_observable and p.ring_transverse_observable
+        ]
+        return max(common, key=lambda p: p.n_members)
+
+    @property
+    def ring_transverse_advantage(self) -> float:
+        """How many times tighter the coplanar ring is on the binding transverse axis at equal N.
+
+        >1 means the ring pins the binding axis with fewer members than the shell: every ring member
+        lies in-plane and reads the transverse axis, whereas the shell spends members on the
+        orbit-normal axis (C0: ~50× less important).  This is the architectural read — the shell
+        only adds the weak axis, so the constellation can be a cheaper coplanar ring if normal
+        velocity is not needed.
+        """
+        p = self._largest_common_point
+        return p.shell_transverse_sigma_m_s / p.ring_transverse_sigma_m_s
+
+    @property
+    def shell_tdop_sqrt_n(self) -> float:
+        """Mean of TDOP·√N over the asymptotic (N≥8) shell points — the 1/√N DOP constant (~2)."""
+        products = [
+            (p.shell_transverse_sigma_m_s / self.radial_velocity_sigma_m_s) * math.sqrt(p.n_members)
+            for p in self.points
+            if p.n_members >= 8 and p.shell_transverse_observable
+        ]
+        return sum(products) / len(products)
+
+    @property
+    def inverse_sqrt_n_scaling(self) -> bool:
+        """Whether σ_T follows 1/√N (TDOP·√N stays within 10% of its mean over the asymptote).
+
+        The diminishing-returns read: σ_T falls only as 1/√N, so quadrupling members merely halves
+        accuracy.  Past the minimum member count the gain is redundancy/GDOP, not precision — the
+        match-not-beat thesis (ADR 0020 decision 5).
+        """
+        products = [
+            (p.shell_transverse_sigma_m_s / self.radial_velocity_sigma_m_s) * math.sqrt(p.n_members)
+            for p in self.points
+            if p.n_members >= 8 and p.shell_transverse_observable
+        ]
+        return (max(products) - min(products)) / (sum(products) / len(products)) < 0.10
+
+    @property
+    def shell_meets_target_at_min(self) -> bool:
+        """The minimal 3-D-observable shell already meets the C1 target (match-not-beat)."""
+        if self.min_members_shell is None:
+            return False
+        p = next(p for p in self.points if p.n_members == self.min_members_shell)
+        return p.shell_transverse_sigma_m_s <= self.target_tvel_sigma_m_s
+
+
+def gdop_sweep_finding(
+    member_counts: tuple[int, ...] = DEFAULT_SWEEP_COUNTS,
+) -> GdopSweepFinding:
+    """Assemble the ADR 0020 ring-vs-shell GDOP sweep finding (the pure runner)."""
+    sigma_radial = carrier_phase_velocity_sigma_m_s(downlink_cn0_dbhz())
+    return GdopSweepFinding(
+        radial_velocity_sigma_m_s=sigma_radial,
+        points=gdop_sweep(sigma_radial, member_counts),
+        min_members_shell=min_members_for_target(sigma_radial, geometry="shell"),
+        min_members_ring=min_members_for_target(sigma_radial, geometry="ring"),
+    )
+
+
+def _format_sigma_mm_s(sigma_m_s: float, observable: bool, los_count: int) -> str:
+    """Render a transverse-σ cell: the value when well-posed, else the usable-LOS count."""
+    return f"{sigma_m_s * 1e3:7.4f}" if observable else f" — ({los_count} LOS)"
+
+
+def format_gdop_sweep(finding: GdopSweepFinding) -> str:
+    """One-screen ADR 0020 ring-vs-shell GDOP / min-member sweep report."""
+    lines = [
+        "Apogee nav GDOP sweep — ring vs shell (ADR 0020; coast/apogee transverse-velocity DOP)",
+        f"  radial-velocity σ {finding.radial_velocity_sigma_m_s * 1e3:.4f} mm/s"
+        f" (Ka carrier-phase, {INTEGRATION_TIME_S:g} s); target"
+        f" {finding.target_tvel_sigma_m_s * 1e3:g} mm/s, requirement"
+        f" {finding.required_tvel_sigma_m_s * 1e3:g} mm/s.",
+        f"  minimum members for the {finding.target_tvel_sigma_m_s * 1e3:g} mm/s target:"
+        f"  shell {finding.min_members_shell},  ring {finding.min_members_ring}"
+        " (ring N=3 occults antipodally to 2 LOS → underdetermined).",
+        "    N | shell σ_T (mm/s) [normal] | ring σ_T (mm/s) [normal, in-plane only]",
+    ]
+    for p in finding.points:
+        shell_cell = _format_sigma_mm_s(
+            p.shell_transverse_sigma_m_s, p.shell_transverse_observable, p.shell_los_count
+        )
+        ring_cell = _format_sigma_mm_s(
+            p.ring_transverse_sigma_m_s, p.ring_transverse_observable, p.ring_los_count
+        )
+        shell_norm = "obs" if p.shell_normal_observable else "—"
+        ring_norm = "obs" if p.ring_normal_observable else "—"
+        lines.append(
+            f"  {p.n_members:3d} | {shell_cell}  [{shell_norm:3s}]        |"
+            f" {ring_cell}  [{ring_norm}]"
+        )
+    lines += [
+        f"  Ring is {finding.ring_transverse_advantage:.2f}× tighter on the binding transverse axis"
+        " at equal N — a coplanar ring is the cheaper way to pin it; the shell only adds the"
+        " orbit-normal axis (C0: ~50× less important).",
+        f"  σ_T ~ 1/√N (TDOP·√N ≈ {finding.shell_tdop_sqrt_n:.2f}): 4× the members only halve"
+        " accuracy → beyond the minimum the gain is redundancy/GDOP, not accuracy"
+        " (match-not-beat, ADR 0020 decision 5).",
+    ]
+    return "\n".join(lines)
+
+
 # --- Transponder mass / power (PuffSat side) -----------------------------------------------------
 @dataclass(frozen=True)
 class TransponderComponent:
@@ -361,3 +546,5 @@ def format_apogee_nav(finding: ApogeeNavFinding) -> str:
 
 if __name__ == "__main__":
     print(format_apogee_nav(apogee_nav_finding()))
+    print()
+    print(format_gdop_sweep(gdop_sweep_finding()))

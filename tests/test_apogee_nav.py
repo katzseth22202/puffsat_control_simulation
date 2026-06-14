@@ -8,6 +8,7 @@ import numpy as np
 
 from puffsat_sim.apogee_nav import (
     APOGEE_RADIUS_M,
+    DEFAULT_SWEEP_COUNTS,
     KA_FREQ_HZ,
     NORMAL_AXIS,
     PASSIVE_RECEIVER,
@@ -15,6 +16,7 @@ from puffsat_sim.apogee_nav import (
     TARGET_TVEL_SIGMA_M_S,
     TRANSVERSE_AXIS,
     ApogeeNavFinding,
+    GdopSweepFinding,
     apogee_nav_finding,
     apogee_position,
     axis_observable,
@@ -23,7 +25,10 @@ from puffsat_sim.apogee_nav import (
     constellation_los_units,
     downlink_cn0_dbhz,
     format_apogee_nav,
+    format_gdop_sweep,
     free_space_path_loss_db,
+    gdop_sweep,
+    gdop_sweep_finding,
     line_of_sight_unit_vectors,
     min_members_for_target,
     parabolic_gain_dbi,
@@ -149,3 +154,67 @@ def test_format_reports_link_velocity_gdop_and_mass() -> None:
     assert "transverse" in text.lower()
     assert "mass driver" in text.lower()
     assert "match-not-beat" in text.lower() or "match" in text.lower()
+
+
+# --- ring-vs-shell GDOP / min-member sweep -------------------------------------------------------
+def test_sweep_has_one_point_per_swept_member_count() -> None:
+    sigma_radial = carrier_phase_velocity_sigma_m_s(downlink_cn0_dbhz())
+    points = gdop_sweep(sigma_radial)
+    assert tuple(p.n_members for p in points) == DEFAULT_SWEEP_COUNTS
+
+
+def test_sweep_transverse_sigma_falls_monotonically_with_members() -> None:
+    sigma_radial = carrier_phase_velocity_sigma_m_s(downlink_cn0_dbhz())
+    points = gdop_sweep(sigma_radial)
+    shell = [p.shell_transverse_sigma_m_s for p in points]
+    assert shell == sorted(shell, reverse=True)  # more members → tighter, no reversals
+
+
+def test_sweep_marks_underdetermined_ring_at_n3_as_unobservable() -> None:
+    # The coplanar ring at N=3 occults antipodally to 2 usable LOS — below the 3-LOS solve floor.
+    sigma_radial = carrier_phase_velocity_sigma_m_s(downlink_cn0_dbhz())
+    n3 = gdop_sweep(sigma_radial, (3,))[0]
+    assert n3.ring_los_count == 2
+    assert not n3.ring_transverse_observable
+    assert math.isinf(n3.ring_transverse_sigma_m_s)
+    # The shell at N=3 is well-posed (no antipodal member sits on the apse line).
+    assert n3.shell_transverse_observable
+    assert n3.shell_normal_observable
+
+
+def test_sweep_ring_never_observes_the_orbit_normal_axis() -> None:
+    sigma_radial = carrier_phase_velocity_sigma_m_s(downlink_cn0_dbhz())
+    assert all(not p.ring_normal_observable for p in gdop_sweep(sigma_radial))
+
+
+def test_finding_minimum_members_is_small_for_both_geometries() -> None:
+    finding = gdop_sweep_finding()
+    assert finding.min_members_shell == 3
+    assert finding.min_members_ring == 4  # one more than shell: the N=3 antipodal occultation
+    assert finding.shell_meets_target_at_min
+
+
+def test_finding_ring_is_tighter_than_shell_on_the_binding_transverse_axis() -> None:
+    # A coplanar ring pins the binding in-plane axis with every member; the shell spends members on
+    # the (weak) orbit-normal axis — so the ring is tighter per member on transverse.
+    finding = gdop_sweep_finding()
+    assert finding.ring_transverse_advantage > 1.0
+
+
+def test_finding_dop_follows_inverse_sqrt_n_diminishing_returns() -> None:
+    finding = gdop_sweep_finding()
+    assert finding.inverse_sqrt_n_scaling  # TDOP·√N flat on the asymptote
+    assert 1.5 < finding.shell_tdop_sqrt_n < 2.5  # the ~2 DOP constant
+
+
+def test_sweep_finding_is_a_frozen_value_type() -> None:
+    finding = gdop_sweep_finding()
+    assert isinstance(finding, GdopSweepFinding)
+
+
+def test_format_sweep_reports_the_table_and_both_reads() -> None:
+    text = format_gdop_sweep(gdop_sweep_finding())
+    assert "ring vs shell" in text.lower()
+    assert "minimum members" in text.lower()
+    assert "1/√N" in text or "tighter" in text.lower()
+    assert "match-not-beat" in text.lower()
