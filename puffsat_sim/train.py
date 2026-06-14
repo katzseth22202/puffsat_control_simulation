@@ -38,9 +38,29 @@ from puffsat_sim.guidance import (
     PlateMiss,
     capture_fraction,
 )
+from puffsat_sim.propellant import PropellantPoint, propellant_curve
+from puffsat_sim.terminal import FeedforwardPlan
+
+Vec2 = tuple[float, float]
 
 # The plane's launch-window retarget capability (CONTEXT: Centroid retarget; ADR 0006/0016).
 CENTROID_RETARGET_M: float = 2000.0
+
+# Masks the D1.1 hand-off entry-offset seed tree off the coefficient/injection tree, so a
+# train's shared entry offset is an independent draw from its shared coefficient bias.
+_ENTRY_SEED_MASK: int = 0x5EC0FFEE
+
+# Characterized C0/C1/C2a budget legs the hand-off entry offset is sampled from (swept in D1.x),
+# as 2-D lateral RMS *magnitudes*: the per-unit is C1's validated nav lateral (141 m, in-plane /
+# nav-dominated); the shared is C2a's coefficient-bias lateral (0.2 Cr prior × 745 m/factor ≈
+# 149 m), the common-mode centroid.  Sampled as an isotropic 2-D Gaussian, so each axis draws at
+# σ/√2 (E[|d|²] = 2·(σ/√2)² = σ²) to match the characterized magnitude.
+ENTRY_LATERAL_PERUNIT_M: float = 141.0
+ENTRY_LATERAL_SHARED_M: float = 149.0
+_PER_AXIS_FROM_MAGNITUDE: float = 1.0 / math.sqrt(2.0)
+# The B2 representative mission midcourse Δv (correction 2.17 + anti-drag 0.015 m/s); the terminal
+# aim Δv (per-unit, flown) stacks on top for the <2 % propellant check.
+MIDCOURSE_DV_M_S: float = 2.19
 
 
 @dataclass(frozen=True)
@@ -73,6 +93,14 @@ class TrainDispersionSpec:
     sigma_dv_scatter_radial_m_s: float = 0.0
     sigma_dv_scatter_transverse_m_s: float = 0.0
     sigma_dv_scatter_normal_m_s: float = 0.0
+    # D1.1 hand-off entry offset (the Φ-composed midcourse residual the terminal funnel flies
+    # from) and the flown terminal nav grade; defaults are the characterized C0/C1/C2a budget legs.
+    sigma_entry_lateral_shared_m: float = ENTRY_LATERAL_SHARED_M
+    sigma_entry_lateral_perunit_m: float = ENTRY_LATERAL_PERUNIT_M
+    tracker_sigma_theta_rad: float = 10e-6
+    tracker_sigma_range_m: float = 1.0
+    control_period_s: float = 1.0
+    midcourse_dv_m_s: float = MIDCOURSE_DV_M_S
     # Reduction pin.
     centroid_retarget_m: float = CENTROID_RETARGET_M
 
@@ -170,6 +198,64 @@ def replay_train_unit(
     return _compose_unit(master_seed, spec, train_index, unit_index, shared)
 
 
+def _entry_shared_rng(master_seed: int, train_index: int) -> np.random.Generator:
+    return np.random.default_rng(
+        np.random.SeedSequence(entropy=master_seed ^ _ENTRY_SEED_MASK, spawn_key=(train_index,))
+    )
+
+
+def _entry_unit_rng(master_seed: int, train_index: int, unit_index: int) -> np.random.Generator:
+    return np.random.default_rng(
+        np.random.SeedSequence(
+            entropy=master_seed ^ _ENTRY_SEED_MASK, spawn_key=(train_index, unit_index)
+        )
+    )
+
+
+def _entry_offset(
+    spec: TrainDispersionSpec, shared_lateral: Vec2, unit_rng: np.random.Generator
+) -> Vec2:
+    """One unit's 2-D lateral (⊥v) hand-off entry = shared centroid + per-unit scatter."""
+    sigma_axis = spec.sigma_entry_lateral_perunit_m * _PER_AXIS_FROM_MAGNITUDE
+    return (
+        shared_lateral[0] + float(unit_rng.normal(0.0, sigma_axis)),
+        shared_lateral[1] + float(unit_rng.normal(0.0, sigma_axis)),
+    )
+
+
+def _shared_entry_lateral(master_seed: int, spec: TrainDispersionSpec, train_index: int) -> Vec2:
+    rng = _entry_shared_rng(master_seed, train_index)
+    sigma_axis = spec.sigma_entry_lateral_shared_m * _PER_AXIS_FROM_MAGNITUDE
+    return (float(rng.normal(0.0, sigma_axis)), float(rng.normal(0.0, sigma_axis)))
+
+
+def sample_train_entry_offsets(
+    master_seed: int, spec: TrainDispersionSpec, train_index: int
+) -> tuple[Vec2, ...]:
+    """The D1.1 hand-off lateral entry offsets for a train: shared centroid + per-unit scatter.
+
+    The Φ-composed midcourse residual the terminal funnel flies from (ADR 0018): the *shared*
+    lateral (centroid drift the retarget absorbs) is drawn once; each unit adds an independent
+    *per-unit* lateral (the scatter the funnel must null).  A 2-D vector in the ⊥v plane, mapped
+    to the orbit-normal / in-plane-⊥v axes by the JVM run.
+    """
+    shared_lateral = _shared_entry_lateral(master_seed, spec, train_index)
+    return tuple(
+        _entry_offset(spec, shared_lateral, _entry_unit_rng(master_seed, train_index, j))
+        for j in range(spec.n_units)
+    )
+
+
+def replay_train_entry_offset(
+    master_seed: int, spec: TrainDispersionSpec, train_index: int, unit_index: int
+) -> Vec2:
+    """Reconstruct a single unit's hand-off entry offset standalone (§14.2)."""
+    shared_lateral = _shared_entry_lateral(master_seed, spec, train_index)
+    return _entry_offset(
+        spec, shared_lateral, _entry_unit_rng(master_seed, train_index, unit_index)
+    )
+
+
 @dataclass(frozen=True)
 class TrainCaptureStats:
     """A train's arrival reduction split into centroid drift (retarget) vs scatter (plate)."""
@@ -260,5 +346,69 @@ def format_train_capture(stats: TrainCaptureStats) -> str:
         f"  P(capture) about centroid: {stats.capture_about_centroid * 100:.1f}%"
         f" on the {stats.plate_radius_m:g} m plate"
         f" (absolute, no retarget: {stats.capture_absolute * 100:.1f}%).",
+    ]
+    return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class TrainEnsembleFinding:
+    """The D1.1 verdict surface: capture + propellant + perigee over a train ensemble."""
+
+    capture: TrainCaptureStats
+    terminal_dv_mean_m_s: float
+    terminal_dv_max_m_s: float
+    midcourse_dv_m_s: float
+    propellant: tuple[PropellantPoint, ...]
+    perigee_mean_m: float
+    perigee_min_m: float
+    perigee_max_m: float
+
+    @property
+    def total_dv_worst_m_s(self) -> float:
+        """Worst-unit mission Δv = the characterized midcourse + the flown terminal aim."""
+        return self.midcourse_dv_m_s + self.terminal_dv_max_m_s
+
+    @property
+    def within_budget(self) -> bool:
+        """The worst unit clears the <2 % line at the most conservative Isp anchor (50 s)."""
+        return self.propellant[0].within_budget
+
+
+def summarize_train_ensemble(
+    misses: Sequence[PlateMiss],
+    plans: Sequence[FeedforwardPlan],
+    perigees_m: Sequence[float],
+    spec: TrainDispersionSpec,
+) -> TrainEnsembleFinding:
+    """Assemble the D1.1 finding: the train-relative capture + propellant ledger + perigee."""
+    capture = summarize_train_capture(misses, spec)
+    terminal_dv = np.array([p.dv_m_s for p in plans], dtype=np.float64)
+    perigee = np.array(perigees_m, dtype=np.float64)
+    dv_max = float(terminal_dv.max())
+    return TrainEnsembleFinding(
+        capture=capture,
+        terminal_dv_mean_m_s=float(terminal_dv.mean()),
+        terminal_dv_max_m_s=dv_max,
+        midcourse_dv_m_s=spec.midcourse_dv_m_s,
+        propellant=propellant_curve(spec.midcourse_dv_m_s + dv_max),
+        perigee_mean_m=float(perigee.mean()),
+        perigee_min_m=float(perigee.min()),
+        perigee_max_m=float(perigee.max()),
+    )
+
+
+def format_train_ensemble(finding: TrainEnsembleFinding) -> str:
+    """One-screen D1.1 report: capture + propellant (<2 %) + perigee (deorbit diagnostic)."""
+    worst = finding.propellant[0]
+    lines = [
+        "Rung D / D1.1 — closed-loop train ensemble (Φ-composed entry + flown terminal; ADR 0018)",
+        format_train_capture(finding.capture),
+        f"  Propellant: terminal aim Δv mean {finding.terminal_dv_mean_m_s:.2f}"
+        f" / max {finding.terminal_dv_max_m_s:.2f} m/s; worst mission Δv"
+        f" {finding.total_dv_worst_m_s:.2f} m/s (+ {finding.midcourse_dv_m_s:g} midcourse)"
+        f" → {worst.fraction * 100:.2f}% @ Isp {worst.isp_s:g} s"
+        f" — {'under' if finding.within_budget else 'OVER'} the 2% budget.",
+        f"  Perigee (diagnostic, low=good): mean {finding.perigee_mean_m / 1e3:.1f} km"
+        f" [min {finding.perigee_min_m / 1e3:.1f}, max {finding.perigee_max_m / 1e3:.1f}].",
     ]
     return "\n".join(lines)

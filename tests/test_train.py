@@ -1,4 +1,4 @@
-"""Unit tests for the pure train-mode dispersion core (D1.0; ADR 0016/0018)."""
+"""Unit tests for the pure train-mode dispersion core (D1.0/D1.1; ADR 0016/0018)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,19 @@ import math
 import numpy as np
 
 from puffsat_sim.guidance import CAPTURE_SIGMA_MAX_M, PLATE_RADIUS_M, PlateMiss
+from puffsat_sim.terminal import FeedforwardPlan
 from puffsat_sim.train import (
     TrainCaptureStats,
     TrainDispersionSpec,
+    TrainEnsembleFinding,
     format_train_capture,
+    format_train_ensemble,
+    replay_train_entry_offset,
     replay_train_unit,
     sample_train,
+    sample_train_entry_offsets,
     summarize_train_capture,
+    summarize_train_ensemble,
 )
 
 
@@ -195,3 +201,85 @@ def test_capture_stats_is_a_frozen_value_type() -> None:
     spec = TrainDispersionSpec(n_units=1)
     stats = summarize_train_capture([_miss(0.0, 0.0)], spec)
     assert isinstance(stats, TrainCaptureStats)
+
+
+# --- D1.1: hand-off entry offsets + ensemble finding ---
+
+
+def test_entry_offsets_share_the_shared_component_when_per_unit_is_zero() -> None:
+    spec = TrainDispersionSpec(
+        n_units=6, sigma_entry_lateral_shared_m=149.0, sigma_entry_lateral_perunit_m=0.0
+    )
+    offsets = sample_train_entry_offsets(20260613, spec, train_index=0)
+    assert len(offsets) == 6
+    for off in offsets[1:]:
+        assert off == offsets[0]
+
+
+def test_entry_offsets_differ_per_unit_and_replay_standalone() -> None:
+    spec = TrainDispersionSpec(
+        n_units=5, sigma_entry_lateral_shared_m=149.0, sigma_entry_lateral_perunit_m=141.0
+    )
+    offsets = sample_train_entry_offsets(7, spec, train_index=2)
+    assert len({off for off in offsets}) == len(offsets)
+    for j, off in enumerate(offsets):
+        assert replay_train_entry_offset(7, spec, 2, j) == off
+
+
+def test_entry_offsets_are_independent_of_the_coefficient_draws() -> None:
+    # The entry-offset seed tree is masked off the coefficient/injection tree, so a train's
+    # shared entry offset is not the same byte-stream as its shared coefficient bias.
+    spec = TrainDispersionSpec(n_units=3, sigma_entry_lateral_perunit_m=0.0)
+    inputs = sample_train(123, spec, train_index=0)
+    offsets = sample_train_entry_offsets(123, spec, train_index=0)
+    # Shared coefficient factor (cd/cd_nom) and the shared entry x must not coincide.
+    assert inputs[0].cd_area_over_mass / spec.cd_area_over_mass != offsets[0][0]
+
+
+def test_entry_offset_variance_splits_into_shared_and_per_unit() -> None:
+    # σ is the 2-D lateral magnitude, sampled isotropically (per-axis σ/√2), so the per-axis var
+    # of (shared + per-unit) = (σ_shared² + σ_perunit²)/2; the per-train centroid (mean over units)
+    # keeps only the shared half as n_units grows.
+    spec = TrainDispersionSpec(
+        n_units=40, sigma_entry_lateral_shared_m=150.0, sigma_entry_lateral_perunit_m=141.0
+    )
+    xs = [off[0] for t in range(120) for off in sample_train_entry_offsets(99, spec, t)]
+    centroids_x = [
+        float(np.mean([off[0] for off in sample_train_entry_offsets(99, spec, t)]))
+        for t in range(120)
+    ]
+    assert math.isclose(float(np.var(xs)), (150.0**2 + 141.0**2) / 2.0, rel_tol=0.15)
+    assert math.isclose(float(np.var(centroids_x)), 150.0**2 / 2.0, rel_tol=0.2)
+
+
+def _plan(dv_m_s: float) -> FeedforwardPlan:
+    return FeedforwardPlan(
+        commands=(), dv_m_s=dv_m_s, mass_kg=25.0, saturated=False, peak_slew_rate_deg_s=0.0
+    )
+
+
+def test_ensemble_finding_assembles_capture_propellant_and_perigee() -> None:
+    spec = TrainDispersionSpec(n_units=3, midcourse_dv_m_s=2.19)
+    misses = [_miss(0.5, 0.0), _miss(-0.5, 0.3), _miss(0.0, -0.3)]
+    plans = [_plan(1.0), _plan(1.5), _plan(1.2)]
+    perigees = [52_000.0, 48_000.0, 50_000.0]
+    finding = summarize_train_ensemble(misses, plans, perigees, spec)
+    assert isinstance(finding, TrainEnsembleFinding)
+    assert finding.capture.n_units == 3
+    assert math.isclose(finding.terminal_dv_max_m_s, 1.5)
+    # Worst-case total Δv = midcourse + max terminal; under 2% at the conservative Isp anchor.
+    assert math.isclose(finding.total_dv_worst_m_s, 2.19 + 1.5)
+    assert finding.within_budget
+    assert finding.perigee_min_m == 48_000.0
+    assert finding.perigee_max_m == 52_000.0
+
+
+def test_ensemble_format_reports_capture_propellant_and_perigee() -> None:
+    spec = TrainDispersionSpec(n_units=2)
+    finding = summarize_train_ensemble(
+        [_miss(1.0, 0.0), _miss(-1.0, 0.0)], [_plan(1.0), _plan(1.0)], [50_000.0, 50_000.0], spec
+    )
+    text = format_train_ensemble(finding)
+    assert "capture" in text.lower()
+    assert "propellant" in text.lower()
+    assert "perigee" in text.lower()
