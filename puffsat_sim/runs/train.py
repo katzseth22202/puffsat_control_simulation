@@ -12,6 +12,9 @@ node-count Σ sweep are later D1.x sub-slices (ADR 0018 decisions 4/6).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import replace
+
 import numpy as np
 
 import puffsat_sim.jvm  # noqa: F401  boots the JVM before any org.orekit import
@@ -21,6 +24,14 @@ from puffsat_sim.config import OrbitalConfig
 from puffsat_sim.guidance import TrackerGrade
 from puffsat_sim.montecarlo import physics_from_inputs
 from puffsat_sim.runs.guidance import GuidanceContext, build_guidance_context, run_guidance
+from puffsat_sim.tracker_fusion import (
+    Tracker,
+    array_with_coflyer,
+    fused_tracker_grade,
+    single_target_detector,
+    target_array_only,
+    tracker_fusion_finding,
+)
 from puffsat_sim.train import (
     TrainDispersionSpec,
     TrainEnsembleFinding,
@@ -33,6 +44,8 @@ from puffsat_sim.train import (
 D1_MASTER_SEED: int = 20260613
 SMOKE_N_UNITS: int = 16
 SMOKE_N_TRAINS: int = 2
+# The ADR 0019 single-tracker ceiling the re-run reproduces as the FAIL reference (D1.1 finding).
+LEGACY_SINGLE_TRACKER_SIGMA_THETA_RAD: float = 10e-6
 
 
 def run_train_dispersion(
@@ -41,16 +54,23 @@ def run_train_dispersion(
     master_seed: int = D1_MASTER_SEED,
     orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
     ctx: GuidanceContext | None = None,
+    trackers: Sequence[Tracker] | None = None,
 ) -> TrainEnsembleFinding:
     """Fly one train's units through the closed terminal loop and reduce them (D1.1).
 
     Each unit carries its train-sampled coefficients/space-weather into the *truth* drag and its
     Φ-composed lateral entry offset into the funnel; the loop injects the σ_θ tracker noise.  Pass
-    a shared ``ctx`` to fly several trains over one hand-off/aim-point build.
+    a shared ``ctx`` to fly several trains over one hand-off/aim-point build.  ``trackers`` re-keys
+    the noise grade to a fused multi-tracker architecture (ADR 0019); ``None`` flies the spec's
+    single-tracker ``tracker_sigma_theta_rad``.
     """
     ctx = ctx if ctx is not None else build_guidance_context(orbital_config)
-    grade = TrackerGrade(
-        sigma_theta_rad=spec.tracker_sigma_theta_rad, sigma_range_m=spec.tracker_sigma_range_m
+    grade = (
+        fused_tracker_grade(trackers, sigma_range_m=spec.tracker_sigma_range_m)
+        if trackers is not None
+        else TrackerGrade(
+            sigma_theta_rad=spec.tracker_sigma_theta_rad, sigma_range_m=spec.tracker_sigma_range_m
+        )
     )
     inputs = sample_train(master_seed, spec, train_index)
     entries = sample_train_entry_offsets(master_seed, spec, train_index)
@@ -90,5 +110,59 @@ def train_dispersion_report(
     )
 
 
+def _rerun_block(
+    label: str,
+    finding: TrainEnsembleFinding,
+    effective_sigma_theta_rad: float,
+    margin: float | None,
+) -> str:
+    grade = f"effective σ_θ {effective_sigma_theta_rad * 1e6:.2f} µrad"
+    grade += f" ({margin:.1f}× inside capture-grade)" if margin is not None else ""
+    return f"[{label}] {grade}\n" + format_train_ensemble(finding)
+
+
+def fused_train_rerun_report(
+    n_units: int = SMOKE_N_UNITS,
+    spec: TrainDispersionSpec | None = None,
+    master_seed: int = D1_MASTER_SEED,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+) -> str:
+    """Re-run D1.1 at the fused multi-tracker grade (ADR 0019 decision 4).
+
+    Flies one train per architecture over one shared context: the legacy single-tracker 10 µrad
+    ceiling (the D1.1 FAIL reference), then the fused target array and array+co-flyer — showing the
+    multi-tracker architecture recovers the ~3 µrad effective grade D1.1 needs.
+    """
+    spec = spec if spec is not None else TrainDispersionSpec(n_units=n_units)
+    ctx = build_guidance_context(orbital_config)
+
+    legacy_spec = replace(spec, tracker_sigma_theta_rad=LEGACY_SINGLE_TRACKER_SIGMA_THETA_RAD)
+    blocks = [
+        _rerun_block(
+            "legacy single-tracker 10 µrad ceiling",
+            run_train_dispersion(legacy_spec, 0, master_seed, ctx=ctx),
+            LEGACY_SINGLE_TRACKER_SIGMA_THETA_RAD,
+            None,
+        )
+    ]
+    architectures = [
+        ("single target detector (σ_θ gate)", single_target_detector()),
+        ("target 5-array (Lever 1)", target_array_only()),
+        ("target 5-array + co-flyer (Levers 1+2)", array_with_coflyer()),
+    ]
+    for train_index, (label, trackers) in enumerate(architectures, start=1):
+        fusion = tracker_fusion_finding(trackers)
+        blocks.append(
+            _rerun_block(
+                label,
+                run_train_dispersion(spec, train_index, master_seed, ctx=ctx, trackers=trackers),
+                fusion.effective_sigma_theta_rad,
+                fusion.margin,
+            )
+        )
+    header = "ADR 0019 — D1.1 re-run at the fused terminal-nav grade (C3b noise re-keyed)"
+    return header + "\n\n" + "\n\n".join(blocks)
+
+
 if __name__ == "__main__":
-    print(train_dispersion_report())
+    print(fused_train_rerun_report())

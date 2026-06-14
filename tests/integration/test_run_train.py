@@ -12,6 +12,7 @@ try:
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 
+from puffsat_sim.tracker_fusion import array_with_coflyer
 from puffsat_sim.train import TrainDispersionSpec
 
 pytestmark = pytest.mark.integration
@@ -36,3 +37,18 @@ def test_d1_1_train_ensemble_flies_and_reduces_end_to_end() -> None:
     assert finding.terminal_dv_max_m_s > 0.0
     assert finding.within_budget  # worst-unit mission Δv under 2% at Isp 50
     assert finding.perigee_max_m < 100_000.0  # below the Kármán line — deorbit-good
+
+
+def test_d1_1_rekeyed_at_the_fused_multi_tracker_grade_is_capture_grade() -> None:
+    """ADR 0019 re-key: flying the train at the fused target-array+co-flyer grade (~0.76 µrad)
+    closes capture about the centroid — the multi-tracker architecture delivers the grade D1.1
+    needs, the run-side half of decision 4.
+    """
+    finding = run_train_dispersion(
+        TrainDispersionSpec(n_units=3), train_index=0, trackers=array_with_coflyer()
+    )
+
+    assert finding.capture.n_units == 3
+    assert finding.capture.capture_about_centroid >= 0.5
+    assert finding.capture.scatter_sigma_ok  # scatter σ within the ≤1.65 m criterion
+    assert finding.within_budget
