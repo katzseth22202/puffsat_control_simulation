@@ -535,6 +535,33 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   create; here the shallow tail lets brute force resolve it. **Knowledge-limited confirmed in the
   tail** (driven by entry×noise, not funnel authority). D1 stays feasible; the ADR 0019 fused grades
   (σ 0.58 / 0.21 m) drive the tail far below target. D2 not triggered.
+  **D1.x — fused-grade tail, entry-limited (recorded not coded, 2026-06-15; ADR 0018 findings).**
+  The fused grades' "far below target" was *measured* (the same `runs/tail_capture` flight path): at
+  σ_θ 1.62 / 0.76 µrad the arrival scatter is σ ≈ 0.30 m, so noise can no longer reach the 5 m plate
+  (a ~16 σ event; brute force saw 0/250). The tail **flips to entry/authority-limited** — every
+  escape comes from an entry past a **hard catch-radius cliff at ~475 m** (450 m → 0.38 m miss, 475 m
+  → 14.6 m), and the cliff is **identical at both grades** (it is set by the ½·a·t² funnel authority,
+  not the tracker). Resolved **P(capture) ≈ 99.999 %** (IS escape 1.41e-5, relerr 0.27, ESS 74 at
+  N=250; cross-validated by the catch-radius analytic 1.18e-5) — the regime IS was *reserved* for, so
+  the roles invert (IS headline, catch-radius validator; BF blind). Three reads: (1) **the co-flyer
+  is redundant for the capture number** — array-only ≈ array+co-flyer (same cliff, same escape),
+  both entry-limited; the co-flyer buys robustness margin if the 3 µrad floor is optimistic, not
+  capture; (2) **terminal-noise reduction has a knee at ~the array grade** — past it, capture is
+  governed by the midcourse entry budget and the catch radius, not σ_θ (ADR 0021); (3) the 99.999 %
+  is itself **conservative** (rides the 141 m entry proxy; at the corrector-validated 68.9 m the tail
+  ≈ 1e-21, vanishes).
+  **Terminal drag is feedforward-solved; the binding terminal error is nav knowledge (ADR 0021,
+  2026-06-15).** A synthesis decision recording why the recurring "terminal drag will dominate"
+  intuition is wrong by ~3 orders, and where the coefficient uncertainty it reaches for actually
+  lives. Three structural reasons drag cannot bind the lateral capture miss: it is **along-track**
+  (the miss is ⊥ v_rel; drag's first-order effect is ToA, cleared 2 orders), **exponentially late**
+  (C3a: 8.5 cm uncompensated crossing shift), and **feedforward-cancelled** (2 mm executed, ≤ 0.19 m
+  dispersed, 1–2 m at 100 % coefficient error). The drag/SRP **coefficient** uncertainty *does* cost
+  accuracy — but as the **coast-burn Cr-prior entry leg** (149 m, ADR 0013), not terminal rejection
+  (deploy ≈ apogee ≈ burn, no estimator precedes the burn; covered 34× by the prior). Consequence:
+  no further terminal-drag fidelity (no terminal estimator; cannonball stays fine for terminal,
+  cylinder stays Rung E per ADR 0009); terminal-accuracy effort goes to nav `σ_θ·R` (ADR 0019/0020),
+  not drag — which the fused-tail knee above makes operational.
   **Multi-tracker nav revision (ADR 0019, post-D1.1) — DONE 2026-06-14.** Because the ~3 µrad
   condition rests on a single 3 µrad bench-calibratable distortion floor, the revision recovers
   capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early large-R noise

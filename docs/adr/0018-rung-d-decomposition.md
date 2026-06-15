@@ -360,3 +360,47 @@ drag, isolating the binding entry×noise tail driver).
 - **Remaining D1.x:** the Cr-prior predict/execute mismatch leg; the Φ-Jacobian quasi-Newton
   corrector; nav-Σ-by-node-count → min nodes; MCC-2 scheduling. (Cr/storm IS is a 2nd-order
   extension per D1.1; a larger BF batch tightens the P(capture) lower bound.)
+
+## Implementation findings — D1.x fused-grade tail: entry-limited, recorded not coded (2026-06-15)
+
+The IS-tail slice above resolved the **single-detector** (3.2 µrad) tail. The natural follow-on —
+what is the resolved tail at the **ADR 0019 fused grades** (array-only 1.62 µrad, +co-flyer
+0.76 µrad), whose "far below target" was only inferred from a 16-unit run — was *measured* (a
+throwaway driving the same `runs/tail_capture` flight path: a deterministic entry-magnitude sweep to
+locate the catch radius plus an N=250 IS batch at κ=2.5). Recorded as a finding, **not coded**: the
+result is that the fused tail leaves the regime `tail_capture.py` was built for, so a faithful
+runner would need an inverted estimator (below) — deferred until a fused-grade headline is actually
+needed.
+
+- **The fused tail is entry/authority-limited, not noise-limited.** At the fused grades the arrival
+  scatter is σ ≈ 0.30 m, so a capture *failure by noise* is a ~16 σ event that never happens (brute
+  force saw 0/250 plate escapes). Every escape comes from the **entry exceeding the catch radius**: a
+  deterministic entry sweep puts a **hard cliff at ~475 m** (entry 450 m → 0.38 m miss; 475 m →
+  14.6 m; 500 m → 40.7 m; 700 m → 249.6 m — the saturated funnel passes the overage through almost
+  un-attenuated), and the cliff is **identical at 1.62 and 0.76 µrad**. The catch radius is set by
+  actuator authority (the ½·a·t² funnel, ~487 m in C3c), not by the tracker grade.
+- **Resolved P(capture) ≈ 99.999 %** (escape 1.41e-5 [6.6e-6, 2.15e-5], relerr 0.27, ESS 74 at
+  N=250), cross-validated by the semi-analytic catch-radius estimate `P(entry > 475 m)` = 1.18e-5
+  (2-D Rayleigh, per-axis σ 100 m) — they agree. This is the regime IS was *reserved* for (the
+  IS-tail finding above): κ = 2.5 was counterproductive at the shallow 3.2 µrad tail but is **correct
+  here**, because the > 475 m region *is* the tail, and brute force is blind to it (0/250). The roles
+  invert — IS becomes the headline estimator and the catch-radius analytic the validator, since BF
+  cannot resolve *or* validate at this depth with feasible N.
+- **The co-flyer is redundant for the capture *number*.** Array-only (1.62 µrad) and array+co-flyer
+  (0.76 µrad) give the **same** entry-limited tail (same 475 m cliff, same ~1.2e-5 escape), because
+  both already drowned the noise. The co-flyer's value is **robustness margin** (it holds capture-grade
+  if the 3 µrad distortion floor proves optimistic), not capture probability.
+- **Terminal-noise reduction has a knee at ~the array grade.** Past it, capture is governed by the
+  midcourse **entry budget** (entries exceeding the funnel) and the **catch radius** (authority), not
+  the tracker. Further σ_θ reduction buys nothing for capture — to go lower you raise authority
+  (earlier hand-off / more thrust) or shrink the entry (midcourse nav / Cr-prior), per ADR 0021.
+- **The 99.999 % is itself conservative** — it rides D1.1's 141 m entry proxy; at the
+  corrector-validated *actual* hand-off displacement (68.9 m, 2.13× smaller; the corrector-validation
+  finding above), `P(entry > 475 m)` ≈ 1e-21 and the fused tail vanishes. So 99.999 % is a floor, and
+  the fused architecture clears the 99 % target by orders.
+- **If a coded fused-grade headline is ever wanted:** extend `TailCaptureFinding` to pick the
+  *resolving* estimator (BF when escapes are seen — the shallow regime; IS when BF is blind but IS
+  resolves — this deep regime) and add a catch-radius validation path (entry sweep → `R_catch` →
+  2-D-Rayleigh) since the r_val BF-vs-IS check degenerates (both 0) once the whole tail sits past the
+  funnel edge. A `runs/tail_capture` entry point over the fused architectures would then mirror
+  `runs/train.fused_train_rerun_report`.
