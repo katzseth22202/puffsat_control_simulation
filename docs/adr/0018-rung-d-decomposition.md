@@ -466,6 +466,13 @@ both entry legs validated against the real corrector, the D1 feasibility gate is
 
 ## Post-closeout refinement — the entry budget is along-track-dominated (2026-06-15)
 
+> **Superseded by the re-run below (same day).** The decomposition in this section is correct (the
+> entry *is* along-track-dominated), but its **inferences** — that the 141 m proxy over-stresses the
+> ⊥v cliff ~6×, that the requirement is over-conservative, and that a looser grade / single 10 µrad
+> detector might pass — were **falsified** by the flown re-run. The along-track is *not* irrelevant to
+> capture: it is range-observable and trips the significance gate, which is what lets the loop null
+> the small ⊥v. See "Re-run executed" below. Read this section as the hypothesis, not the verdict.
+
 Prompted by Seth's observation that the Cr leg's miss was nearly all along-track: if the *plate*-frame
 capture miss is ⊥v_rel (ADR 0015) and the along-track axis is ToA, then the (T, N) "lateral" the whole
 budget chain (C0/C1/C2a) uses — which excludes only radial — may be **counting along-track as
@@ -500,3 +507,42 @@ the crossing miss into true ⊥v_rel vs along-v): **it is, and badly.**
   (ADR 0019) drops from *required* to *margin* — a real architecture simplification — and the apogee
   constellation's coast-nav grade can likewise relax. This **refines** the closeout (D1 is *more*
   feasible, possibly at a looser grade), it does not overturn it.
+
+## Re-run executed — the "over-stress 6×" hypothesis is FALSIFIED; the 141 m proxy is ≈accurate (2026-06-15)
+
+The suggested re-run above was flown (`runs/train.py`, controlled same-seed sweeps). Its premise — that
+the (T, N) 141 m entry over-stresses the ⊥v cliff ~6×, so D1.1 is conservative and a looser grade /
+single detector might pass — **does not survive contact with the flown loop.** The model was **not**
+changed; the committed 141 m-isotropic entry stands, now *validated* as a ≈accurate (mildly conservative)
+proxy. The reasoning chain that produced the hypothesis missed one fact: **the C3b significance gate
+keys on the full 3-D ZEM, and the along-track entry is range-observable.**
+
+- **A ⊥v-only entry is the wrong experiment — it is pessimistic, not accurate.** Replacing the 141 m
+  isotropic entry with a 24.6 m ⊥v-only entry makes capture *worse*, not better: at 3.2 µrad, pooled
+  σ rises 1.47 → 2.14 m and P(capture) falls 99 % → 91 % (same-seed; consistent across trains). The
+  10 µrad single detector still fails either way. So the naïve "shrink the entry to the true ⊥v" move
+  is an artifact, not a correction.
+- **Why: the significance gate needs a signal to trip.** `guidance.significant_zem` holds fire while
+  |ZEM| ≤ 3σ of the σ_θ·R noise. A *lone* small ⊥v entry (24.6 m) sits at the gate threshold (SNR ≈ 3
+  at the single-detector grade), so the loop fires late with little authority → larger residual. The
+  **real** entry is anisotropic — ~172 m along-v (which is *along the closing LOS, so range-observable
+  to ~1 m*) + ~24.6 m ⊥v — and the large along-v makes |ZEM| large, **tripping the gate early**; the
+  loop then homes on the *full* ZEM and nulls the small ⊥v cleanly.
+- **Confirmed by the anisotropic re-run.** Restoring the along-v term (172 m along-v + 24.6 m ⊥v)
+  recovers capture: pooled σ 2.14 → **1.35 m**, P(capture) 91 % → **100 %** at 3.2 µrad — matching
+  D1.1's original 141 m-isotropic result (σ 1.47 m, ~99 %). The committed 141 m-isotropic entry trips
+  the gate via a large (mis-attributed) ⊥v exactly as the real anisotropic entry trips it via the
+  along-v, so it lands within ~9 % of the accurate answer and on the **conservative** side.
+- **Net: D1.1's conclusions stand unchanged.** Requirement ~3.2 µrad (single detector marginal at the
+  gate-tripped operating point; **fusion the robust baseline** — 5-array 1.62 µrad → σ 0.88 m / 100 %,
+  +co-flyer 0.76 µrad → σ 0.32 m / 100 %, pooled). The "over-stressed 6× / over-conservative / single
+  10 µrad may pass / fusion becomes a hedge" conjecture in the section above is **withdrawn**: the
+  along-track is *not* irrelevant to capture (it carries the gate), the requirement does not relax, and
+  no hardware loosens.
+- **A reusable lesson on the entry model.** The plate miss is ⊥v, but the ⊥v *capture* is coupled to
+  the along-v through the significance gate — so the entry cannot be reduced to its ⊥v magnitude. The
+  (T, N) figures across the budget chain (`tracker_budget` acquisition FOV, `coeff_requirement` /
+  `authority` RSS ledger, `corrector_validation` crossing proxy) therefore remain the right ones to
+  carry. The genuinely accurate model is the *anisotropic* entry (along-v + ⊥v); implementing it
+  (vs. the validated 141 m-isotropic proxy) is an optional D1.x refinement, not a correction —
+  the outcome is ~identical.
