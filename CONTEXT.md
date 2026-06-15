@@ -303,7 +303,12 @@ N independent target-side detectors (ADR 0019) fused to beat a single **Tracker 
 is the whole game: separate optics, *separately bench-calibrated* distortion maps, each doing its
 own beacon-vs-its-own-star-field astrometry — then 5× 10 µrad → ~1.4 µrad. The X-pattern *spatial*
 spread is for **coverage + redundancy + common-boresight rejection, not precision** (√N is
-statistical, separation-agnostic). _Avoid_: crediting the baseline with precision, or expecting
+statistical, separation-agnostic). Hedge audit (2026-06-15): the fusion model banks the *entire*
+3 µrad distortion in the independent bucket (**zero** assumed common-mode distortion), so the
+1.62 µrad 5-array grade is the *optimistic* end — the open question is the **common-mode-distortion
+tolerance** (how much correlated distortion before 1.62 µrad exceeds the 3.2 µrad capture grade),
+folded into the **Differential astrometry** distortion-field study. _Avoid_: crediting the baseline
+with precision, or expecting
 **ranging** to sharpen the lateral (a short baseline gives ~33 mrad — angles do the lateral work).
 Inter-PuffSat *cameras*/beacon cross-links and a *moving target plate* are the same trap (grill
 2026-06-15): common-mode tools that sharpen the swarm's internal scatter or track the centroid
@@ -312,6 +317,33 @@ binding *per-unit* residual, which is **engine reach** past the **Catch radius**
 not relative-nav knowledge). Inverts near the Sun (relative placement *is* the mission, no anchor
 floor), where this family is worth re-exploring as a close-in collision sensor.
 
+**Differential astrometry** (the σ_θ distortion hedge):
+Measuring the target beacon's bearing *relative to reference stars in the same FOV/exposure*
+(inertial directions known to µas) rather than absolutely on the focal plane — the Gaia trick: the
+focal-plane **distortion** common to beacon + nearby stars cancels, leaving only the distortion
+*gradient* over the small target-to-star separation. The acquisition design already needs ≥3
+reference stars in the FOV (`tracker_budget.py`); this uses them *metrically*. Centerpiece of the
+terminal cross-track **hedge** program (idea menu 2026-06-15, `todos/improve_terminal_crosstrack.md`):
+the binding terminal axis is the cross-track-to-target position σ_θ·R, and D1 is already feasible
+*past the noise knee*, so this is **defense-in-depth on the load-bearing 3 µrad distortion-calibration
+number plus extra capture margin**, not closing a capture gap. Genuine **uncredited** headroom — the
+σ_θ **Tracker budget**'s 3 µrad is the *absolute* bench residual; today the differential is invoked
+only to cancel bus *smear* and to justify cross-detector independence, never to cut the distortion
+floor itself. **Payoff is spectrum-contingent** (no bench data — pure sim): a *low-spatial-frequency*
+(smooth) residual leaves a gradient ≪3 µrad over the nearest-star separation → a several-× win; a
+*high-spatial-frequency* (pixel-scale) residual makes differencing two uncorrelated errors √2 *worse*.
+So the deliverable is a **sensitivity curve** (differential residual vs. assumed distortion correlation
+length, break-even marked) that *outputs a bench-characterization requirement* (a paper §-worthy
+result), not a point claim. **Merged with the Tracker array audit** (#1+#4 = one distortion-field
+study: one field model, the spatial correlation length → per-detector differential gain, the
+detector-to-detector correlation → cross-detector common-mode fraction). The VLBI-swarm
+synthesized-baseline "beat" (idea #3) is **relocated to the paper's solar-collision chapter**, not
+modeled for LEO — a compound-failure-only hedge whose cm cross-track baseline-knowledge requirement
+re-encounters the lateral-blind wall (relative-ranging grill 2026-06-15). _Avoid_: treating distortion
+as a scalar *floor* when crediting this (it must be a spatial *field*); claiming the win without naming
+the assumed spectrum; the co-flyer-beacon-as-reference variant (#5) as a primary path (dominated by
+stars — dense, µas-known, anchor-floor-free; keep only as a star-starved fallback).
+
 **Co-flying tracker**:
 The reused launch rocket (ADR 0019) as a *close* terminal tracker (~500 km vs the target's
 2603 km → 5× less σ_θ·R), attacking the early large-R noise at its source. It tracks the **Train**
@@ -319,8 +351,15 @@ The reused launch rocket (ADR 0019) as a *close* terminal tracker (~500 km vs th
 array**). Load-bearing: the rocket→target vector must be pinned *independently* (unlocked
 spaceborne GNSS — the terminal phase is low-altitude, inside the GPS volume), not by inter-rocket
 ranging (which fixes range, not the long-baseline lateral). Gated on a **phasing** sim (can it stay
-close + low + non-decaying at the terminal window). _Avoid_: "they range to each other so they know
-the relative vector" (ranging ≠ lateral).
+close + low + non-decaying at the terminal window). Hedge reframe (2026-06-15): the co-flyer is
+**anchor-floored** — its `COFLYER_RELGEOM_SIGMA_M` 2 m GNSS-pinned floor dominates its σ_θ·R
+(≈0.99 m at 500 km), so a 20× range cut buys only ~10 %; its real hedge value is being a
+**σ_θ-independent ~2 m / 0.77 µrad backstop** (the anchor is GNSS-set, *not* distortion-set, so it
+survives a bad distortion floor), not "push it closer." The only true linear-in-R lever — a *later
+target hand-off* (no anchor on the target leg) — is dropped: it spends the thin ~2.2× **Catch
+radius** margin *quadratically* for *linear* precision. _Avoid_: "they range to each other so they
+know the relative vector" (ranging ≠ lateral); "push the co-flyer closer for ~20× gain"
+(anchor-floored — ~10 %).
 
 **Effective σ_θ**:
 The *fused* relative-nav grade the PuffSat's ZEM loop actually sees (ADR 0019) — the
