@@ -305,6 +305,12 @@ own beacon-vs-its-own-star-field astrometry — then 5× 10 µrad → ~1.4 µrad
 spread is for **coverage + redundancy + common-boresight rejection, not precision** (√N is
 statistical, separation-agnostic). _Avoid_: crediting the baseline with precision, or expecting
 **ranging** to sharpen the lateral (a short baseline gives ~33 mrad — angles do the lateral work).
+Inter-PuffSat *cameras*/beacon cross-links and a *moving target plate* are the same trap (grill
+2026-06-15): common-mode tools that sharpen the swarm's internal scatter or track the centroid
+drift — both already absorbed by the **Centroid retarget** + plate width — and are blind to the
+binding *per-unit* residual, which is **engine reach** past the **Catch radius** (a thrust limit,
+not relative-nav knowledge). Inverts near the Sun (relative placement *is* the mission, no anchor
+floor), where this family is worth re-exploring as a close-in collision sensor.
 
 **Co-flying tracker**:
 The reused launch rocket (ADR 0019) as a *close* terminal tracker (~500 km vs the target's
