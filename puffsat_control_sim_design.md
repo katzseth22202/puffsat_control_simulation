@@ -608,6 +608,23 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   catch radius 475 m vs entry RSS ~224 m ≈ 2.1×, propellant < 2 %, ToA ≤ 0.7 ms, perigee ~65 km. The
   remaining D1.x (Φ-Jacobian quasi-Newton, MCC-2 scheduling, larger BF batch) are **non-blocking
   refinements**, not gates — so the substantive build ladder is complete at the C baseline.
+  **D1.x — entry budget is along-track-dominated (post-closeout refinement, 2026-06-15; ADR 0018
+  findings).** Prompted by the Cr leg's along-track-ness: the (T, N) "lateral" the whole C0/C1/C2a
+  chain uses (excludes only radial) **counts along-track as cross-track**. Measured (real corrector,
+  N=32 nav draws, decomposing the crossing miss): the nav leg's (T, N) RMS is 173 m but the **true
+  ⊥v_rel cross-track entry is only 24.6 m** (14 %; along-v 172 m; R/T/N = 0/173/3, R = 0 by the
+  altitude-triggered crossing). The dominant nav lever — *apogee transverse velocity* — changes the
+  *period* → it surfaces as **along-track/ToA, not cross-track**, so C0's "binding requirement" is
+  really a ToA sensitivity. Both legs are along-track-dominated (nav ⊥v 24.6 m, Cr ⊥v 22 m), so the
+  true cross-track entry is **~33 m RSS** vs the 475 m catch radius — **~14× margin, not 2.1×** — and
+  D1.1 **over-stressed the loop ~6×** (141 m ⊥v entry vs the real ~25 m ZEM). Since D1.1's binding
+  mechanism is the entry tripping the significance gate, the **~3 µrad requirement is likely
+  over-conservative — the single 10 µrad detector may pass, making ADR 0019 fusion a hedge not a
+  necessity.** Caveats: the 172 m along-track is ToA (nulled by the loop ≤ 0.7 ms + ±5 s window for
+  common-mode), and the relaxation is a nonlinear entry×noise question. **Suggested re-run:** re-run
+  D1.1 with the corrected ~25 m per-unit ⊥v entry (vs `ENTRY_LATERAL_PERUNIT_M = 141 m`) and read
+  whether 10 µrad single-detector clears capture — if so, fusion and the apogee-nav grade both relax.
+  Refines the closeout (D1 *more* feasible), does not overturn it.
   **Multi-tracker nav revision (ADR 0019, post-D1.1) — DONE 2026-06-14.** Because the ~3 µrad
   condition rests on a single 3 µrad bench-calibratable distortion floor, the revision recovers
   capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early large-R noise

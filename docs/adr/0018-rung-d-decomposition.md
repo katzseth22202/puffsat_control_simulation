@@ -463,3 +463,40 @@ both entry legs validated against the real corrector, the D1 feasibility gate is
   brute-force batch to tighten the single-detector lower bound. None changes the verdict; each only
   sharpens a number or speeds the MC. **Rung D's open question now is D2 (MPC value), which is not
   triggered** — so the substantive build ladder is complete at the C baseline.
+
+## Post-closeout refinement — the entry budget is along-track-dominated (2026-06-15)
+
+Prompted by Seth's observation that the Cr leg's miss was nearly all along-track: if the *plate*-frame
+capture miss is ⊥v_rel (ADR 0015) and the along-track axis is ToA, then the (T, N) "lateral" the whole
+budget chain (C0/C1/C2a) uses — which excludes only radial — may be **counting along-track as
+cross-track**. Measured (a throwaway flying the real corrector over N=32 C1-Σ nav draws, decomposing
+the crossing miss into true ⊥v_rel vs along-v): **it is, and badly.**
+
+- **The nav leg is along-track-dominated.** (T, N) RMS 173 m (≈ the 141 m budget metric, N=32
+  sampling), but the **true ⊥v_rel cross-track entry is only 24.6 m** (14 %); along-v (ToA) is 172 m,
+  and the per-axis split is R/T/N = 0 / 173 / 3 m. R = 0 *exactly* — the crossing is an altitude-
+  triggered event (fixed 200 km), so the miss lives in the horizontal (T, N) plane with T = downrange
+  ≈ along-velocity. The 24.6 m ⊥v is the genuine plate-frame lateral (the ~8° flight-path angle tilts a
+  sliver of the downrange offset into ⊥v).
+- **Why** (the deeper point): the dominant nav uncertainty is *apogee transverse velocity* (C0's
+  binding lever), and a transverse-velocity error changes the orbital *period* → it surfaces as
+  **along-track phase / ToA**, not cross-track. So C0's "binding requirement" is effectively a *ToA*
+  sensitivity that the (T, N) convention has been booking as cross-track. Both entry legs are
+  along-track-dominated (nav ⊥v 24.6 m; Cr ⊥v 22 m).
+- **Implication — the closeout's margins are conservative on the binding axis.** True cross-track entry
+  ≈ √(24.6² + 22²) ≈ **33 m RSS** vs the 475 m catch radius — **~14× margin, not the 2.1×** the (T, N)
+  RSS (224 m) implied. And D1.1 fed a **141 m ⊥v entry when the real cross-track ZEM is ~25 m**, so it
+  **over-stressed the terminal loop ~6×**. Since D1.1's binding mechanism is the entry tripping the
+  significance gate and forcing early firing through σ_θ·R noise, a 6× smaller entry means the gate
+  holds far better — so the **~3 µrad requirement is likely over-conservative, and the single 10 µrad
+  detector may pass**, which would make ADR 0019 fusion a *hedge*, not a necessity.
+- **Caveats (don't oversell):** the 172 m along-track is not free — it is ToA (~16 ms uncontrolled) —
+  but the terminal loop already nulls it (D1.1: ToA ≤ 0.7 ms) and the ±5 s launch-window slip absorbs
+  the common-mode part; ToA is handled, just not by tight apogee nav. And the requirement relaxation is
+  a **nonlinear entry×noise question** — the linear argument above is suggestive, not proof.
+- **Suggested re-run (the confirmation):** re-run D1.1 (`runs/train.py`) with the corrected per-unit
+  ⊥v entry magnitude (~25 m nav, ~33 m total RSS) in place of `ENTRY_LATERAL_PERUNIT_M = 141 m`, and
+  read whether the **10 µrad single detector** now clears σ ≤ 1.65 m / capture. If it does, fusion
+  (ADR 0019) drops from *required* to *margin* — a real architecture simplification — and the apogee
+  constellation's coast-nav grade can likewise relax. This **refines** the closeout (D1 is *more*
+  feasible, possibly at a looser grade), it does not overturn it.
