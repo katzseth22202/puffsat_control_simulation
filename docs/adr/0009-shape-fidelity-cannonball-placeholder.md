@@ -51,7 +51,23 @@ paper's `sec:estimate_cold_gas` (GOCE→ANFO cold-gas estimate) is the external 
    cannonball-pessimistic; **Rung E** re-runs the Rung D Monte Carlo with the shape model
    (same trajectory and seeds — a clean A/B), producing the pessimistic-vs-optimistic
    comparison that becomes the paper's follow-up to the GOCE-ANFO appendix.
-   - **E1 (committed): attitude-dependent area at favorable pointing.** Model the cylinder
+
+   > **Amendment 2026-06-15 (after D1 closeout): E1 downgraded from committed to optional.**
+   > D1 closed feasible with drag confirmed **non-gating** (ADR 0021: terminal drag is
+   > feedforward-solved and the coefficient's only entry is the coast Cr-prior leg, which the
+   > Cr-mismatch leg showed is shared/absorbed and 98 % along-track). The cannonball is
+   > pessimistic in *every* GNC-relevant direction (terminal rejection, Cr-prior entry,
+   > anti-drag propellant), so the lower-drag cylinder can only *improve* margins that already
+   > pass — it cannot change the verdict. **E1 therefore survives only as optional paper polish**
+   > (the pessimistic→optimistic comparison numbers), not a gate. **The one place the cannonball
+   > is *optimistic*, not pessimistic — burn-up / debris disposal** (more drag → easier burn-up;
+   > the "low = good" flip already noted in decision 2) — is the only residual that wants the
+   > low-drag case, and it is a **reentry-heating diagnostic, not the Rung-E GNC re-run** and not
+   > a mission gate (burn-up is the desired outcome on a miss). If the paper claims deorbit
+   > margin, check it at the realistic (high-β, low-drag) shape — separately — rather than off the
+   > inflated-drag run.
+
+   - **E1 (optional — downgraded 2026-06-15): attitude-dependent area at favorable pointing.** Model the cylinder
      face-on into the flow / its projected area to the Sun, *assuming* good pointing (an
      Orekit panel/box `DragSensitive`+`RadiationSensitive` + an attitude provider swapped
      into D's harness — a force-model swap, not a new harness). Deliverable: the comparison
@@ -87,6 +103,10 @@ paper's `sec:estimate_cold_gas` (GOCE→ANFO cold-gas estimate) is the external 
   documented lever, grounding is contingent on a gate failure (not a B3 prerequisite).
 - The roadmap gains **Rung E** (E1 committed, E2 optional); the paper's GOCE-ANFO appendix
   (`sec:estimate_cold_gas`) is the pessimistic endpoint of E1's comparison.
+  **Superseded by the 2026-06-15 amendment (decision 4): E1 downgraded to optional after D1
+  closed feasible with drag non-gating (ADR 0021).** Rung E is now optional paper polish; the
+  only residual that wants the low-drag shape is the burn-up / debris-disposal claim, which is a
+  separate reentry-heating diagnostic, not the GNC re-run.
 - The cannonball deferral — previously only a §7 note + a parked-decision memory — is now a
   formal record.
 - Still deferred within shape fidelity: optical properties beyond a single `Cr`,
