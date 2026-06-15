@@ -404,3 +404,62 @@ needed.
   2-D-Rayleigh) since the r_val BF-vs-IS check degenerates (both 0) once the whole tail sits past the
   funnel edge. A `runs/tail_capture` entry point over the fused architectures would then mirror
   `runs/train.fused_train_rerun_report`.
+
+## Implementation findings — D1.x Cr-prior mismatch leg, recorded not coded (2026-06-15)
+
+The other deferred leg of decision 6's brute-force batch A (the corrector-validation above did the
+nav leg). It flies the **real corrector planning with a prior Cr** and executing against a different
+**truth Cr** (a throwaway over the existing flight primitives — `report_controller` solving against a
+`physics_prior` crossing closure, then `descend` under `physics_truth`; the harness shares one physics
+between predict and execute, so the predict-side coefficient mismatch is the one knob it lacks, done
+out-of-band). The Cr is the SRP `cr_area_over_mass`; the mismatch sweep is the factor δ.
+
+- **C2a validated end-to-end.** The crossing miss is **exactly linear** in δ and **injection-decoupled**
+  (zero and non-zero injection give the identical slope — clean superposition), and in C2a's (T, N)
+  lateral metric it reproduces the analytic **745 m/factor exactly** (149 m at the 0.2 prior). So
+  C2a's `coefficient_sensitivity` (Φ · ∂Δv/∂Cr) holds against the real nonlinear corrector — the Cr
+  twin of the nav-leg superposition result.
+- **But the 149 m is 98.6 % along-track.** At the near-perigee crossing (e ≈ 0.92) the velocity is
+  transverse, so C2a's T axis is ~along v: the δ = 0.2 miss decomposes R/T/N = 0/149/7 with along-v
+  147 m. The **true plate-frame ⊥v Cr entry is only 22 m** (110 m/factor) — **6.8× smaller** than the
+  (T, N) budget figure, exactly the along-track dominance of SRP that ADR 0021 records. C2a's (T, N)
+  lateral is a conservative proxy that folds the along-track ToA component into "lateral."
+- **The Cr-prior leg is comprehensively benign and does not feed the 475 m cliff.** It is
+  **shared/common-mode** (a prior bias shifts every unit the same way): the 22 m cross-track part is
+  absorbed by the ±2 km centroid retarget (90×), and the 147 m ≈ 13.6 ms along-track part by the ±5 s
+  launch-window slip the same retarget commands (CONTEXT). The train split already books Cr as the
+  149 m **shared** leg (`ENTRY_LATERAL_SHARED_M`), absorbed by the homing per D1.1's centroid-drift ~0;
+  this leg confirms it end-to-end and adds that even the *raw* cross-track Cr is 6.8× below the (T, N)
+  figure. The per-unit cliff entry (141 m) stays nav-driven; the per-unit Cr *spread* (a few % factor)
+  contributes single-digit metres of ⊥v, negligible against the nav leg.
+
+## D1 closeout — feasibility verdict (2026-06-15)
+
+With the three pre-gates passed, the architecture decided + sized, the terminal tail resolved, and
+both entry legs validated against the real corrector, the D1 feasibility gate is **closed**.
+
+- **Verdict: D1 is FEASIBLE on the dumb C baseline (A1/A3 corrector + C3b ZEM terminal + C3c MCC-2 +
+  finite burn), conditional on the fused terminal-nav grade — which the σ_θ tracker-budget gate
+  (3.2 µrad per detector) and ADR 0019 fusion deliver. D2 (MPC) is NOT triggered** (no measured D1
+  violation; §16.10's "MPC must beat the baseline on the same MC" has no baseline failure to beat).
+- **Architecture (Seth, 2026-06-15):** zero separate coordinator nodes — coast/apogee-state nav is the
+  150k Ka-band **apogee nav constellation** (ADR 0020, which generalizes the coordinator node; min 3
+  shell / 4 ring members, sized to *match* the C1 grade = the 140 m entry nav leg); terminal relative
+  homing is the fused **co-flyer + target array** (ADR 0019).
+- **Capture story:** single-detector 3.2 µrad → **99.2 %** (noise-limited, marginal, 2× heavy tail);
+  fused array (≥ ~1.6 µrad) → **99.999 %** (entry/authority-limited; the co-flyer is robustness margin,
+  redundant for the number). The binding regime flips at the **knee** (arrival σ ≈ 1.05 m): below it,
+  capture is governed by the midcourse entry budget vs the 475 m catch radius, not σ_θ.
+- **Entry budget, both legs validated against the real corrector:** nav per-unit 141 m (the
+  cliff-relevant scatter — corrector-validation: Φ-map reproduced, hand-off 2.13× conservative vs the
+  crossing proxy); Cr-prior shared 149 m (common-mode, absorbed by the ±2 km / ±5 s retarget; 98 %
+  along-track ToA, true ⊥v 22 m). Drag is feedforward-solved and non-binding (ADR 0021).
+- **Margins, all comfortable:** catch radius 475 m vs entry RSS ~224 m ≈ 2.1×; propellant < 2 % at the
+  C3b worst stack; ToA ≤ 0.7 ms vs 10 ms; perigee ~65 km (intended debris disposal, §9). Conservatisms
+  stack in the safe direction (entry crossing proxy 2.1×, Cr cross-track 6.8×, fused tail rides the
+  141 m proxy so the real tail ≈ 1e-21).
+- **Remaining D1.x are non-blocking refinements, not gates:** the Φ-Jacobian warm-started quasi-Newton
+  corrector (performance; this batch + the nav batch are its reference), MCC-2 scheduling, and a larger
+  brute-force batch to tighten the single-detector lower bound. None changes the verdict; each only
+  sharpens a number or speeds the MC. **Rung D's open question now is D2 (MPC value), which is not
+  triggered** — so the substantive build ladder is complete at the C baseline.

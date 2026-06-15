@@ -562,6 +562,28 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   no further terminal-drag fidelity (no terminal estimator; cannonball stays fine for terminal,
   cylinder stays Rung E per ADR 0009); terminal-accuracy effort goes to nav `σ_θ·R` (ADR 0019/0020),
   not drag — which the fused-tail knee above makes operational.
+  **D1.x — Cr-prior mismatch leg (recorded not coded, 2026-06-15; ADR 0018 findings).** The Cr twin of
+  the nav-leg corrector-validation: fly the real corrector planning with a *prior* Cr, executing against
+  a *truth* Cr. The crossing miss is **exactly linear in δCr and injection-decoupled**, and reproduces
+  C2a's analytic **745 m/factor in the (T, N) metric exactly** (149 m at the 0.2 prior) — C2a validated
+  end-to-end. But that 149 m is **98.6 % along-track** (R/T/N = 0/149/7, along-v 147 m — the
+  near-perigee velocity is transverse), so the true plate-frame **⊥v Cr entry is only 22 m** (110
+  m/factor), **6.8× under** the (T, N) figure, exactly the SRP along-track dominance ADR 0021 records.
+  The Cr-prior leg is therefore **comprehensively benign**: shared/common-mode (the 22 m ⊥v absorbed by
+  the ±2 km centroid retarget, the 13.6 ms along-track by the ±5 s launch-window slip), already booked
+  as the train's 149 m shared leg and absorbed by the homing — it does not feed the 475 m per-unit cliff.
+  **D1 CLOSEOUT — feasibility verdict (2026-06-15).** With the three pre-gates passed, the architecture
+  decided + sized, the terminal tail resolved, and both entry legs validated against the real corrector,
+  the D1 gate is **closed: D1 is FEASIBLE on the dumb C baseline, conditional on the fused terminal-nav
+  grade (delivered by the σ_θ gate + ADR 0019 fusion); D2 (MPC) is NOT triggered.** Architecture (zero
+  separate coordinator nodes): coast nav = the 150k Ka-band apogee constellation (ADR 0020, generalizes
+  the coordinator node, min 3–4 members, matches the 140 m entry nav leg); terminal = fused co-flyer +
+  target array (ADR 0019). Capture: single-detector 99.2 % (noise-limited, marginal) → fused 99.999 %
+  (entry-limited; knee at arrival σ ≈ 1.05 m). Entry legs validated (nav 141 m cliff-relevant /
+  hand-off 2.1× conservative; Cr 149 m shared/absorbed/98 % ToA); drag non-binding (ADR 0021). Margins:
+  catch radius 475 m vs entry RSS ~224 m ≈ 2.1×, propellant < 2 %, ToA ≤ 0.7 ms, perigee ~65 km. The
+  remaining D1.x (Φ-Jacobian quasi-Newton, MCC-2 scheduling, larger BF batch) are **non-blocking
+  refinements**, not gates — so the substantive build ladder is complete at the C baseline.
   **Multi-tracker nav revision (ADR 0019, post-D1.1) — DONE 2026-06-14.** Because the ~3 µrad
   condition rests on a single 3 µrad bench-calibratable distortion floor, the revision recovers
   capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early large-R noise
