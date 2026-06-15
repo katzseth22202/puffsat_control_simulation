@@ -516,6 +516,25 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   verdict is pessimistic (the safe direction). Remaining D1.x: the Cr-prior predict/execute mismatch
   leg, the Φ-Jacobian warm-started quasi-Newton corrector (this batch is its validation reference),
   nav-Σ-by-node-count → min nodes, MCC-2 scheduling, and the importance-sampling tail.
+  **D1.x — importance-sampling tail P(capture) — DONE 2026-06-15
+  (`puffsat_sim/tail_capture.py` pure + `runs/tail_capture.py`; ADR 0018 decision 6).** Closes
+  D1.1's last caveat — its headline P(capture) was a 16-unit empirical that could not resolve the
+  figure of merit. Resolves the per-unit capture-failure tail by importance sampling, validated by a
+  brute-force batch (the same C3b ZEM loop flown over IS + brute-force entry draws at the achievable
+  3.2 µrad grade; tracker noise fresh per trajectory so it stays out of the weight, truth physics
+  nominal so the feedforward rejects drag). **TAIL-RESOLVED P(capture) ≈ 99.2 % per unit**
+  [98.4–99.98, N=500] — a **shallow ~0.8 % escape**, not a deep rare event (point clears the 99 %
+  target; lower bound just below it, N-limited). **Key finding: the flown tail is 2.0× heavier than
+  Gaussian** — arrival σ **1.51 m MEETS the ≤ 1.65 m criterion**, yet escape (0.80 %) is **2.0× the
+  0.41 % the σ-criterion's Gaussian implies** (the catch-radius cliff + gate rectification fatten the
+  tail beyond what LinCov/Gaussian can see — exactly decision 6's caution; the σ-criterion is mildly
+  optimistic about the tail). IS **validated** (gentle κ=1.35, ESS 240/300, Σw/N 1.00; IS↔BF agree
+  at r_val 3 m, 14.8 % vs 14.6 %) — but **aggressive κ=2.5 is counterproductive** (pushes draws past
+  the ~450 m funnel-authority edge into a saturation catastrophe nominal entries never reach,
+  blowing up the variance), so IS is the tool for the *deeper* tails a tighter plate/grade would
+  create; here the shallow tail lets brute force resolve it. **Knowledge-limited confirmed in the
+  tail** (driven by entry×noise, not funnel authority). D1 stays feasible; the ADR 0019 fused grades
+  (σ 0.58 / 0.21 m) drive the tail far below target. D2 not triggered.
   **Multi-tracker nav revision (ADR 0019, post-D1.1) — DONE 2026-06-14.** Because the ~3 µrad
   condition rests on a single 3 µrad bench-calibratable distortion floor, the revision recovers
   capture-grade nav from cruder, redundant **10 µrad** detectors and attacks the early large-R noise
@@ -560,9 +579,9 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   (shared-vs-per-unit, correlation pins **swept**); nav Σ a swept axis parameterized by node
   count → **minimum node count**; nav error sampled from the C1 Σ (not a live UKF); Φ-Jacobian
   warm-started quasi-Newton (FD-Newton fallback) + process parallelism; **importance-sampling
-  tail** + brute-force validation batch (the **corrector-in-loop validation DONE 2026-06-14** — see
-  the D1.x finding above), LinCov as pre-screen / control-variate / IS-designer
-  (never replaces the tail). Headline **P(capture)** about the train centroid + centroid-drift
+  tail** + brute-force validation batch (**both DONE** — the corrector-in-loop validation 2026-06-14
+  and the IS tail 2026-06-15, see the D1.x findings above), LinCov as pre-screen / control-variate /
+  IS-designer (never replaces the tail). Headline **P(capture)** about the train centroid + centroid-drift
   (vs ±2 km) + scatter (vs plate) + propellant (<2 %) + perigee diagnostic + per-axis
   sensitivities → the **conditional** yes/no. **D2 — MPC value:** MPC vs the C baseline on the
   same MC, robustness only on a measured violation (§16.10) (ADR 0012, 0015, 0016, **0018**).

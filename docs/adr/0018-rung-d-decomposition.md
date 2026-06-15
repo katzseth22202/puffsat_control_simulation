@@ -311,3 +311,52 @@ false-fails small N on RMS sampling noise — caught when the n=8 smoke read "in
   `RunVariant` coefficient-mismatch knob); the **Φ-Jacobian warm-started quasi-Newton corrector**
   (this brute-force batch is its validation reference); nav-Σ-by-node-count → min nodes; MCC-2
   scheduling; the importance-sampling tail.
+
+## Implementation findings — D1.x importance-sampling tail P(capture) (2026-06-15)
+
+The last standing D1.1 caveat, closed (decision 6). D1.1's headline P(capture) was a 16-unit
+empirical ("94 % about-centroid / 100 % absolute") that cannot resolve the figure of merit. This
+slice resolves the per-unit capture-failure tail by importance sampling, validated against a
+brute-force batch. The pure reduction is `puffsat_sim/tail_capture.py` (the IS proposal over the
+2-D per-unit hand-off entry offset, the exact likelihood-ratio weights, the weighted estimator with
+CI / effective sample size, and the brute-force-agreement check); the JVM glue
+`runs/tail_capture.py` flies the **same C3b ZEM loop D1.1 uses** over an IS batch and a brute-force
+batch at the achievable 3.2 µrad grade — tracker noise sampled fresh per trajectory (so it stays
+out of the importance weight), truth physics held at nominal (the feedforward then fully rejects
+drag, isolating the binding entry×noise tail driver).
+
+- **TAIL-RESOLVED per-unit P(capture) ≈ 99.2 %** [95 % CI 98.4–99.98], N = 500 brute force at the
+  3.2 µrad grade. This replaces D1.1's unresolved 16-unit "100 %" with a real number: the
+  capture-failure is a **shallow ~0.8 % event**, not a deep 10⁻³ rare event. The point estimate
+  clears the paper's 99 % target; the *lower* CI bound (98.4 %) sits just under it — N = 500-limited
+  (4 escape events), so a larger batch tightens it (the slice's one remaining refinement).
+- **The flown tail is 2.0× heavier than Gaussian — the key finding.** The arrival scatter σ is
+  **1.51 m, which MEETS the ≤ 1.65 m criterion** (ADR 0015), yet the measured plate-escape (0.80 %)
+  is **2.0× the 0.41 % that σ predicts under the Gaussian/Rayleigh tail the criterion assumes.** The
+  catch-radius cliff + significance-gate noise rectification fatten the tail beyond Gaussian —
+  exactly the nonlinearity decision 6 said the LinCov/Gaussian screen cannot see. So the σ-criterion
+  is *mildly optimistic* about the tail (the absolute miss stays tiny, but "σ ≤ 1.65 m" over-states
+  the capture it implies). Tail-resolution, not a covariance screen, is what surfaces this.
+- **IS validated, and aggressive inflation is counterproductive.** Because the tail is shallow,
+  brute force resolves it directly and IS is the validated cross-check: at a *gentle* κ = 1.35 the
+  proposal is well-behaved (ESS 240 / 300, Σw/N = 1.00) and IS agrees with brute force at the
+  shallow r_val = 3 m (14.8 % [9.6, 19.9] vs 14.6 % [11.5, 17.7] — CIs overlap, the reweighting is
+  unbiased). An aggressive κ = 2.5 *inflated* the variance instead of reducing it: it pushed draws
+  past the ~450 m funnel-authority edge into the saturation-catastrophe regime (a single 499 m miss)
+  that nominal entries never reach, blowing up the weighted variance (rel error 1.0 at the plate).
+  The funnel cliff makes naive variance-scaling fragile; the right designer choice oversamples the
+  escape ring without crossing the funnel edge. IS is the tool reserved for the **deeper** tails a
+  tighter plate / stricter target / nav-marginal grade would create, where brute force gets
+  expensive; at 3.2 µrad / 5 m plate the tail is shallow enough that brute force suffices.
+- **Knowledge-limited, confirmed in the tail.** The capture-failure tail is driven by the
+  entry×noise rectification (nav), not control authority: the funnel catch radius (~500 m) binds
+  only in the catastrophe regime nominal entries never reach. No fat dispersion tail eats the funnel
+  margin — the knowledge-vs-authority conclusion holds where it is most likely to break.
+- **Verdict.** D1 stays feasible on the dumb C baseline at the achievable 3.2 µrad grade (~99.2 %
+  per-unit capture, the rest deorbiting by §9 as intended); the ADR 0019 fused grades (5-array σ
+  0.58 m, +co-flyer σ 0.21 m) drive the tail far below the 99 % target with margin. **D2 (MPC) is
+  not triggered.** The σ-criterion's 2.0× tail optimism is the slice's caution for the marginal
+  single-detector grade; the fused architecture absorbs it.
+- **Remaining D1.x:** the Cr-prior predict/execute mismatch leg; the Φ-Jacobian quasi-Newton
+  corrector; nav-Σ-by-node-count → min nodes; MCC-2 scheduling. (Cr/storm IS is a 2nd-order
+  extension per D1.1; a larger BF batch tightens the P(capture) lower bound.)
