@@ -22,6 +22,16 @@ recover capture-grade relative nav from cruder, redundant **10 µrad** detectors
 on one precise calibration — and can we attack the early error at its source? The answer is a
 **multi-tracker terminal-nav architecture**, resolved lever by lever against the existing docs.
 
+A follow-on grill (2026-06-15) pinned *how* the static 3 µrad floor could prove optimistic, so this
+array has a named trigger: the ADR 0015 vibration-isolation stack (differential cancellation of
+*rigid* bus motion + ~1 ms exposure + ToA-gated ringdown + the continuous N-star plate solve as a
+live distortion monitor) leaves the grade calibration-limited, *provided* impact-driven **structural
+flexure** rings down inside the ~1 s inter-impact window — `5·τ_ring ≪ inter-impact period` on the
+tracker-mount first-mode/damping (with the Orion-style shock absorber smoothing the pulse the optic
+ever sees). If that bench/modal number comes back bad — a low first mode or slow settling that shifts
+the *dynamic* distortion beyond the static-calibrated 3 µrad — the √N array down to the common-mode
+distortion floor is the recovery, which is why it is worth building before the number is in hand.
+
 ## Decision
 
 1. **Target-side detector array.** Put N independent 10 µrad detectors on the target (an X-pattern

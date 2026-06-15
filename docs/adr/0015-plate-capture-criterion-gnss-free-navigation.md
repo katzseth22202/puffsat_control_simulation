@@ -74,8 +74,18 @@ number transformed under arithmetic:
    architecture: **beacon-vs-star-background differential astrometry in the same focal
    plane** — self-referencing (platform attitude error cancels between exposures; the
    measurement is absolute, which also kills the common-mode aim-bias failure mode
-   below), ~1 ms exposures on a bright laser beacon keep worst post-impact smear
-   ~3 µrad, nav-grade gyros bridge between ~1 Hz frames. A GOCE-class accelerometer on
+   below), ~1 ms exposures on a bright laser beacon keep the within-frame post-impact smear
+   residual ~0.87 µrad (the differential measurement cancels *rigid* bus motion; the 3 mrad/s
+   residual rate is what survives that cancellation), nav-grade gyros bridge between ~1 Hz
+   frames. *Structural* flexure (not common-mode) is handled by **time separation**: the
+   propulsion concept's mandatory Orion-style shock absorber smooths each impulse over ~the 1 s
+   inter-pulse, and the active-beacon → 5 cm aperture → high-first-mode optic rings down in tens
+   of ms ≪ the inter-impact window, so the ToA-scheduled gate covers it; the continuous N-star
+   plate solve catches any quasi-static distortion shift the gate cannot blank (the star field
+   is a live distortion monitor). Net: the grade is **calibration-limited** (the 3 µrad static
+   distortion floor), **not vibration-limited** — the bench item is the mount's
+   first-mode/damping vs `5·τ_ring ≪ inter-impact period`, and ADR 0019's array is the hedge if
+   it comes back bad. A GOCE-class accelerometer on
    the tracker platform is **rejected** (wrong axis — linear, not angular — and
    ~10⁵–10⁶× over its full scale in a 1–2 m/s² pulsed environment; the ADR 0013 fiction,
    re-buried). Plume flash at each impact is handled by **scheduled gating** (the ToA

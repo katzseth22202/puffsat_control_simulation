@@ -454,7 +454,31 @@ state the measured A/B/C0–C2a results stand; the gate is green as of this entr
   ±2 mrad beam covers the **±1.4 mrad** (3σ·141 m / 300 km) acquisition cone; the **binding FOV
   is reference-star availability** (±5.8 mrad for 3 stars at ~10th-mag density), resolved to
   Nyquist by a **~1100-px detector at 10.6 µrad/px**. The load-bearing terminal-nav grade is
-  now a *derived* hardware requirement, not a guess. **Torque-margin** (the 1°/s slew rail) —
+  now a *derived* hardware requirement, not a guess. **Vibration isolation — how 3.2 µrad
+  survives a 1 Hz-hammered bus (grill 2026-06-15).** The ~350 kg-TNT-equivalent impacts at
+  ~1 Hz never reach the focal plane raw; the mechanism is a stack, not one trick. (i)
+  **Differential astrometry** (beacon vs same-frame star field) makes the measurement
+  self-referencing, so *rigid* bus motion is common-mode and **cancels** — the modeled
+  3 mrad/s `residual_body_rate_rad_s` is the *post-cancellation residual* (raw ±1.4° @ 1 Hz ⇒
+  ~0.15 rad/s peak; ~50× rejection set by plate-scale uniformity × the beacon↔star field
+  separation), streaked ×1 ms / √12 → **0.87 µrad**. (ii) **Structural flexure is *not*
+  common-mode** (the optical prescription itself changes with field angle), so it is handled by
+  **time separation, not cancellation**: the propulsion concept's *mandatory* **Orion-style
+  shock absorber** spreads each impulse over ~the 1 s inter-pulse (the optic, like the
+  passengers, never sees the raw shock), and the **active-beacon → 5 cm aperture → high
+  first-mode (few-hundred-Hz–kHz)** coupling means whatever rings settles in tens of ms
+  (5·τ_ring = 5·Q/πf ≈ 95 ms at f 500 Hz / Q 30) **≪ the 1 s window**, so the ToA-scheduled
+  gate covers the ringdown along with the plume flash. (iii) The *quasi-static* distortion
+  shift under the smooth push (which the gate cannot blank) is caught **live** by the
+  continuous N-star plate solve — the star field is a real-time distortion monitor, not only
+  the common-mode reference (needs the ≥3 reference stars the acquisition budget already
+  requires). **Net:** the vibration terms (smear 0.87 ⊕ gyro 0.58 ≈ 1.0 µrad) sit *under* the
+  3 µrad **static** distortion floor — the grade is **calibration-limited, not
+  vibration-limited**. **Bench/analysis item (the assertion this rests on):** the
+  tracker-mount first-mode frequency + damping and the absorber transfer function, pass
+  condition **5·τ_ring ≪ inter-impact period** and **quasi-static distortion observable by the
+  N-star solve**; if that comes back bad, **ADR 0019's array is the hedge** (√N down to the
+  common-mode distortion floor). **Torque-margin** (the 1°/s slew rail) —
   **DONE 2026-06-13 (`puffsat_sim/torque_margin.py`, pure, no JVM; non-blocking): CONFIRMED.**
   The thrust-direction demand is the perigee LOS rate `v_p/r_p` = **0.097 °/s** (B3a *measured*
   0.048 °/s) → **~10× (21×) inside the 1 °/s rail** — confirming §13's "expected slack, a result

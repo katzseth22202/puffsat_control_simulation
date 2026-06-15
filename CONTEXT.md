@@ -283,9 +283,19 @@ The pure derivation (a D1 blocking gate, ADR 0018) of what the 10 µrad terminal
 **Tracker grade** demands — aperture / exposure / residual jitter / SNR for a dim, fast target
 on a shaking bus, plus *acquisition* (tracker FOV vs the hand-off delivery Σ). It promotes the
 load-bearing terminal-nav assumption from an assumed spec to a derived hardware requirement;
-if 10 µrad is unmeetable the **Catch radius** story falls, so it blocks the MC. _Avoid_:
-confusing it with the **Tracker grade** itself (the budget is what *achieving* that grade
-costs, not the grade).
+if 10 µrad is unmeetable the **Catch radius** story falls, so it blocks the MC. The **smear**
+term's defensibility on a 1 Hz-hammered bus rests on a stack (grill 2026-06-15): differential
+astrometry **cancels** *rigid* bus motion (common-mode), so the 3 mrad/s residual is the
+*post-cancellation* rate; *structural flexure* (not common-mode) is handled by **time
+separation** — the propulsion concept's Orion-style shock absorber + a small-stiff optic
+(active-beacon → 5 cm aperture → high first mode) ring down ≪ the 1 s inter-impact window, so
+the ToA-scheduled gate covers it; the continuous N-star plate solve is a **live distortion
+monitor** for any quasi-static residual. Net: the grade is **calibration-limited, not
+vibration-limited** — the **Tracker array** (ADR 0019) is the hedge if the mount's
+first-mode/damping bench number comes back bad. _Avoid_: confusing it with the **Tracker
+grade** itself (the budget is what *achieving* that grade costs, not the grade); reading the
+smear cancellation as covering *flexure* (it covers rigid motion only — flexure is gated out
+in time, not cancelled).
 
 **Tracker array**:
 N independent target-side detectors (ADR 0019) fused to beat a single **Tracker grade** by
