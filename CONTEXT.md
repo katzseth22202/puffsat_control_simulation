@@ -314,8 +314,40 @@ Inter-PuffSat *cameras*/beacon cross-links and a *moving target plate* are the s
 2026-06-15): common-mode tools that sharpen the swarm's internal scatter or track the centroid
 drift — both already absorbed by the **Centroid retarget** + plate width — and are blind to the
 binding *per-unit* residual, which is **engine reach** past the **Catch radius** (a thrust limit,
-not relative-nav knowledge). Inverts near the Sun (relative placement *is* the mission, no anchor
-floor), where this family is worth re-exploring as a close-in collision sensor.
+not relative-nav knowledge). **Refined (grill 2026-06-16):** that trap holds for *passive*
+cameras / move-the-plate (sub-arch A — reads only the common-mode, leaves the per-unit residual);
+it is *escaped* by an **independent anchor + camera-rigid swarm** (see **Surveyor-anchored
+centering**) for the *deferred cm-centering follow-on* — there the per-unit residual is optical-nav,
+not engine-reach (cm trims sit deep inside the 475 m **Catch radius** funnel). Inverts near the Sun
+(relative placement *is* the mission, no anchor floor), where this family is worth re-exploring as a
+close-in collision sensor.
+
+**Surveyor-anchored centering** (the deferred cm-centering follow-on, grill 2026-06-16):
+The scheme for the paper's deferred **terminal cm-centering** sub-problem (§2) — *not* a change to
+the committed plate-capture baseline (which stands on the 5 m plate / closed-out D1); the optional
+tightening that shrinks the pusher plate from 5 m toward ~10 cm by driving the *per-unit* arrival
+miss to cm. Two levers on two axes. **(1) Block shift** — a **sacrificial first PuffSat**
+("surveyor") whose true crossing is read by an **independent one-shot instrumented gate** (a
+**hoop**: lidar/microwave trilateration — *not* the optical tracker, which would be circular against
+its own bias; *not* a hit, which dumps off-center torque + flash + shock) pins the swarm's
+quasi-static optical-distortion *bias* to the plate. **(2) Per-unit scatter** — **strobed
+known-pattern LED beacons** make the swarm **camera-rigid**: inter-PuffSat *bearing* gives the
+binding cross-track at the short intra-train range (σ_δ = σ_θ·v/f), PnP *range* lands on the
+non-binding along-track, **blink-code ID** (no cross-unit clock — cross-track is range-insensitive,
+so a shared clock would buy only ID, which blink-codes give for free), **anchor-as-surveyor**
+topology (the first unit looks *backward* at dark sky, maps the trailing swarm, gets hoop-pinned,
+broadcasts each follower's plate-relative offset → followers never stare into the forward
+flash/glare). The per-unit floor moves from geometry (easy — cm at 2–4 Hz even with a crude camera)
+to **metrology**: σ_hoop (≤1 cm → 5 cm plate; ~3 cm → 10 cm plate) and the camera's *own* calibrated
+distortion floor (differential-star astrometry → ~3 µrad). f is **passenger-g-bounded** (2–3 g:
+ascent gravity-loss floor below, comfort ceiling above; at fixed g, f ∝ rocket mass → heavier
+rockets run tighter trains → smaller plates); flash recovery (5 ms) and the ~95 ms mount ring-down
+are both non-binding ≤4 Hz, and the projectile-side cameras are immune regardless. Long train →
+periodic re-anchoring (~1 unit/min, <1%) if the bias drifts. **Committed claim: 10 cm plate (robust,
+~50× off the 5 m); 5 cm stretch contingent on σ_hoop ≤1 cm + a calibrated camera; 2 cm dropped.**
+Authority is *not* the binder (cm trims, 475 m funnel) — this stays **knowledge/metrology-limited**.
+_Avoid_: reading it as a change to the committed criterion; "cameras cut per-unit scatter" *without*
+the independent anchor (= the **Tracker array** trap); demanding a cross-unit clock.
 
 **Differential astrometry** (the σ_θ distortion hedge):
 Measuring the target beacon's bearing *relative to reference stars in the same FOV/exposure*
