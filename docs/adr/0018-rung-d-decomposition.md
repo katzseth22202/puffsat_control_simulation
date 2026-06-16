@@ -546,3 +546,32 @@ keys on the full 3-D ZEM, and the along-track entry is range-observable.**
   carry. The genuinely accurate model is the *anisotropic* entry (along-v + ⊥v); implementing it
   (vs. the validated 141 m-isotropic proxy) is an optional D1.x refinement, not a correction —
   the outcome is ~identical.
+
+## Project closeout — remaining items deliberately parked (grill 2026-06-16)
+
+A grill-with-docs session reviewed every still-open item against a single test — *can it
+**falsify** a committed conclusion, or only **sharpen a number already inside margin**?* — and
+confirmed the **simulation build ladder is complete**. The remaining items are parked **on
+purpose**, not forgotten; they should not be re-opened by reflex.
+
+- **Committed figure of merit = the fused terminal-nav grade** (ADR 0019). The single-detector
+  3.2 µrad P(capture) (99.2 %, lower CI 98.4 %) is a **stress floor, not a shipped claim** — so the
+  *larger brute-force batch* that would tighten its lower bound is retired (it would defend a number
+  we do not deliver). The delivered architecture is the 5-array (+ optional co-flyer) fusion → 99.999 %.
+- **Deliverable spine:** fused-grade 5 m-plate capture (D1 closed) **+ an optional Surveyor-anchored
+  centering tightening toward a ~10 cm plate** (cameras + an independent lidar/microwave hoop; see
+  CONTEXT). The 10 cm option is **knowledge/metrology-limited, not control-limited** (cm trims sit deep
+  inside the 475 m catch-radius funnel), so it does **not** resurrect D2/MPC either.
+- **Parked as non-falsifying refinements** (sharpen-only, no verdict change): Φ-Jacobian warm-started
+  corrector (MC speed), MCC-2 scheduling, larger BF batch, **Rung E** cylinder (cannonball is
+  *pessimistic* for GNC, so the cylinder can only improve a passing number — ADR 0021/0009).
+- **Parked as advice-gated, not killed:** **Rung F** GMAT independent cross-check (the in-house
+  two-tier validation — Tier 1 machine-precision conservation, Tier 2 independent RK4 Cowell agreeing
+  with Orekit to ~1e-7 of orbit scale — suffices for the verdict; GMAT is reviewer-defensibility
+  insurance, executed only if a referee demands an external tool). This is a *speculative* near-term
+  paper, so GMAT is deferred.
+- **D2 (MPC value)** remains the doc's one genuine open question but is **not triggered** (no measured
+  D1 violation to beat). Park; revisit only if a future requirement actually fails the C baseline.
+- **The only genuinely live work is paper-side** (integrate the sim findings + the near-Sun
+  differential-ranging chapter into the white paper), which the author has gated on seeking outside
+  advice before proceeding.
