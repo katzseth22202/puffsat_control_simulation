@@ -29,7 +29,7 @@ focal-plane question, not an orbit-propagation one).  It does two things.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 
 from puffsat_sim.anti_drag import PEAK_THRUST_LIMIT_N
 from puffsat_sim.constants import PLANCK_J_S, SPEED_OF_LIGHT_M_S
@@ -114,6 +114,12 @@ def photon_snr(hw: TrackerHardware, range_m: float) -> float:
     return n_sig / math.sqrt(n_sig + hw.noise_photons)
 
 
+def photons_for_snr(snr: float, noise_photons: float) -> float:
+    """Invert ``SNR = N/√(N+noise)`` for the signal photon count ``N`` (the positive root)."""
+    s2 = snr * snr
+    return (s2 + math.sqrt(s2 * s2 + 4.0 * s2 * noise_photons)) / 2.0
+
+
 def photon_sigma_theta_rad(hw: TrackerHardware, range_m: float) -> float:
     """Photon-limited centroiding precision of an isolated point source: ``(λ/D) / SNR``.
 
@@ -123,6 +129,24 @@ def photon_sigma_theta_rad(hw: TrackerHardware, range_m: float) -> float:
     """
     spot = diffraction_spot_rad(hw.aperture_m, hw.wavelength_m)
     return spot / photon_snr(hw, range_m)
+
+
+def power_for_centroid_floor(
+    hw: TrackerHardware, range_m: float, target_sigma_theta_rad: float
+) -> float:
+    """Minimum beacon (peak) power so the photon-limited centroid term ≤ ``target_sigma_theta_rad``.
+
+    The inversion of :func:`photon_sigma_theta_rad`: the target σ_θ fixes the SNR
+    (``(λ/D)/target``), :func:`photons_for_snr` turns that into a photon count, and
+    :func:`signal_photons` is linear in power, so the power is the count divided by the
+    photons-per-watt at this range and aperture.  This is the *peak* power — the power held
+    during one exposure; cadence (duty cycle) only scales the thermal average, not this.
+    """
+    spot = diffraction_spot_rad(hw.aperture_m, hw.wavelength_m)
+    required_snr = spot / target_sigma_theta_rad
+    n_req = photons_for_snr(required_snr, hw.noise_photons)
+    photons_per_watt = signal_photons(replace(hw, beacon_power_w=1.0), range_m)
+    return n_req / photons_per_watt
 
 
 def smear_sigma_theta_rad(residual_body_rate_rad_s: float, exposure_s: float) -> float:
@@ -361,5 +385,158 @@ def format_tracker_budget(finding: TrackerBudgetFinding) -> str:
         f" → binding FOV ±{finding.fov_halfangle_rad * 1e3:.2f} mrad, resolved to Nyquist by a"
         f" {finding.detector_pixels_across}-px detector"
         f" ({finding.pixel_ifov_rad * 1e6:.1f} µrad/px)."
+    )
+    return "\n".join(lines)
+
+
+# --- Peak-power sizing sweep -------------------------------------------------------------
+#
+# The σ_θ budget above is *not* photon-limited, so beacon power has slack: the only job of the
+# photons is to push the centroiding term well under the calibration floor.  This sweep sizes
+# the *minimum* peak power that does that for realistic ranges and apertures, so the LED beacon
+# is not over-specified.  "Peak" because the beacon strobes — cadence sets the thermal average,
+# not this number; and exposure is fixed (the smear term already shows 1 ms is motion-safe), so
+# the binding axes are range (R², the photon falls off) and aperture (1/D⁴: a bigger dish both
+# collects more and shrinks the spot).  The default beam is a wide LED cone (no fine pointing) —
+# required power ∝ the beam solid angle, so a steered narrow beam buys the (θ/θ_laser)² factor
+# back at the cost of pointing (the LED-vs-laser trade).
+
+# Photon term held this far under the distortion floor counts as "good centroiding" — past it
+# the photon contribution is negligible in the RSS and σ_θ is purely calibration-limited.
+PEAK_POWER_MARGIN_BELOW_FLOOR: float = 0.1
+
+# A lensed LED beacon wide enough to need no fine pointing (~20° half-cone), and the steered
+# laser beam the original budget assumed — the reference for the narrow-beam power saving.
+LED_BEAM_HALFANGLE_RAD: float = 0.35
+LASER_REFERENCE_BEAM_HALFANGLE_RAD: float = 2.0e-3
+
+# Representative link ranges, close swarm to far cooperative target: surveyor↔PuffSat (100 m,
+# 1 km), the acquisition range (300 km), the co-flyer (500 km) and the target (2603 km).
+DEFAULT_SWEEP_RANGES_M: tuple[float, ...] = (1.0e2, 1.0e3, 3.0e5, 5.0e5, 2.603e6)
+DEFAULT_SWEEP_APERTURES_M: tuple[float, ...] = (0.02, 0.05, 0.10)
+
+# The peak power the sizing is read against (the figure the design was questioning).
+REFERENCE_PEAK_POWER_W: float = 1.0e3
+
+
+@dataclass(frozen=True)
+class PeakPowerCell:
+    """The minimum beacon peak power for good centroiding at one (range, aperture) point."""
+
+    range_m: float
+    aperture_m: float
+    peak_power_w: float
+    pulse_energy_j: float
+    photon_sigma_theta_rad: float
+    snr: float
+
+
+@dataclass(frozen=True)
+class PeakPowerSpec:
+    """The peak-power sweep grid: ranges × apertures at a fixed beam, exposure and target."""
+
+    ranges_m: tuple[float, ...] = DEFAULT_SWEEP_RANGES_M
+    apertures_m: tuple[float, ...] = DEFAULT_SWEEP_APERTURES_M
+    beam_half_angle_rad: float = LED_BEAM_HALFANGLE_RAD
+    margin_below_floor: float = PEAK_POWER_MARGIN_BELOW_FLOOR
+    base_hardware: TrackerHardware = field(default_factory=TrackerHardware)
+
+
+@dataclass(frozen=True)
+class PeakPowerSweepFinding:
+    """The sized peak-power grid and the reads off it (narrow-beam saving, 1 kW reference)."""
+
+    spec: PeakPowerSpec
+    cells: tuple[PeakPowerCell, ...]
+    target_sigma_theta_rad: float
+    reference_peak_power_w: float = REFERENCE_PEAK_POWER_W
+
+    @property
+    def narrow_beam_factor(self) -> float:
+        """Power a steered ±2 mrad laser saves over the wide LED cone: ``(θ_beam/θ_laser)²``."""
+        return (self.spec.beam_half_angle_rad / LASER_REFERENCE_BEAM_HALFANGLE_RAD) ** 2
+
+    @property
+    def max_peak_power_w(self) -> float:
+        return max(c.peak_power_w for c in self.cells)
+
+    @property
+    def min_peak_power_w(self) -> float:
+        return min(c.peak_power_w for c in self.cells)
+
+
+def peak_power_sweep(spec: PeakPowerSpec | None = None) -> PeakPowerSweepFinding:
+    """Size the minimum beacon peak power for good centroiding over the range × aperture grid."""
+    s = spec if spec is not None else PeakPowerSpec()
+    target = s.margin_below_floor * s.base_hardware.distortion_floor_rad
+    cells: list[PeakPowerCell] = []
+    for range_m in s.ranges_m:
+        for aperture_m in s.apertures_m:
+            hw = replace(
+                s.base_hardware,
+                aperture_m=aperture_m,
+                beam_half_angle_rad=s.beam_half_angle_rad,
+            )
+            power_w = power_for_centroid_floor(hw, range_m, target)
+            powered = replace(hw, beacon_power_w=power_w)
+            cells.append(
+                PeakPowerCell(
+                    range_m=range_m,
+                    aperture_m=aperture_m,
+                    peak_power_w=power_w,
+                    pulse_energy_j=power_w * hw.exposure_s,
+                    photon_sigma_theta_rad=photon_sigma_theta_rad(powered, range_m),
+                    snr=photon_snr(powered, range_m),
+                )
+            )
+    return PeakPowerSweepFinding(spec=s, cells=tuple(cells), target_sigma_theta_rad=target)
+
+
+def _format_power(power_w: float) -> str:
+    if power_w >= 1.0e3:
+        return f"{power_w / 1e3:.2f} kW"
+    if power_w >= 1.0:
+        return f"{power_w:.2f} W"
+    if power_w >= 1.0e-3:
+        return f"{power_w * 1e3:.2f} mW"
+    return f"{power_w * 1e6:.2f} µW"
+
+
+def _format_range(range_m: float) -> str:
+    return f"{range_m / 1e3:g} km" if range_m >= 1.0e3 else f"{range_m:g} m"
+
+
+def format_peak_power_sweep(finding: PeakPowerSweepFinding) -> str:
+    """One-screen peak-power sizing — the minimum power for good centroiding by range × aperture."""
+    s = finding.spec
+    hw = s.base_hardware
+    target_urad = finding.target_sigma_theta_rad * 1e6
+    floor_urad = hw.distortion_floor_rad * 1e6
+
+    lines = [
+        "LED beacon peak-power sizing — minimum peak power for good centroiding (ADR 0018)",
+        f"  Target: photon-limited centroid term ≤ {target_urad:.2f} µrad"
+        f" ({s.margin_below_floor:g}× the {floor_urad:.0f} µrad distortion floor) — below this the"
+        " photons are negligible and σ_θ is calibration-limited, not photon-limited.",
+        f"  Beacon: LED cone ±{math.degrees(s.beam_half_angle_rad):.0f}° (wide, no fine pointing),"
+        f" {hw.exposure_s * 1e3:.0f} ms exposure @ {hw.wavelength_m * 1e9:.0f} nm,"
+        f" η {hw.efficiency:g}.",
+        "  Minimum peak power, range (rows) × aperture (cols):",
+        "    range \\ aperture  " + "  ".join(f"{a * 1e2:>7.0f} cm" for a in s.apertures_m),
+    ]
+    for range_m in s.ranges_m:
+        row = [c for c in finding.cells if c.range_m == range_m]
+        powers = "  ".join(f"{_format_power(c.peak_power_w):>10}" for c in row)
+        lines.append(f"    {_format_range(range_m):>16}  {powers}")
+
+    lines.append(
+        "  Required peak power ∝ beam solid angle × range² ÷ aperture⁴."
+        f"  A steered ±{LASER_REFERENCE_BEAM_HALFANGLE_RAD * 1e3:g} mrad laser would need"
+        f" ~{finding.narrow_beam_factor:,.0f}× less — but at the cost of pointing (LED-vs-laser)."
+    )
+    lines.append(
+        f"  vs the {finding.reference_peak_power_w / 1e3:g} kW reference: the close-swarm beacon"
+        f" links ({_format_power(finding.min_peak_power_w)}) sit orders of magnitude under it;"
+        " only a wide-LED long-range link approaches it (there, narrow the beam or grow the dish)."
     )
     return "\n".join(lines)

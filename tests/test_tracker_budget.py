@@ -8,19 +8,25 @@ import math
 from puffsat_sim.constants import PLANCK_J_S, SPEED_OF_LIGHT_M_S
 from puffsat_sim.guidance import CAPTURE_SIGMA_MAX_M, homing_floor_m
 from puffsat_sim.tracker_budget import (
+    LASER_REFERENCE_BEAM_HALFANGLE_RAD,
     REQUIRED_SIGMA_THETA_RAD,
     TARGET_SIGMA_THETA_RAD,
     BudgetTerm,
+    PeakPowerSpec,
     TrackerHardware,
     beacon_intensity_w_sr,
     detector_pixels_across,
     diffraction_spot_rad,
     error_budget,
+    format_peak_power_sweep,
     format_tracker_budget,
     gyro_bridge_sigma_theta_rad,
+    peak_power_sweep,
     photon_energy_j,
     photon_sigma_theta_rad,
     photon_snr,
+    photons_for_snr,
+    power_for_centroid_floor,
     reference_star_fov_halfangle_rad,
     required_fov_halfangle_rad,
     rss_sigma_theta_rad,
@@ -168,3 +174,100 @@ def test_format_marks_a_failing_gate() -> None:
     text = format_tracker_budget(tracker_budget_finding(hw))
     assert "FAIL" in text
     assert "blocks Rung D" in text
+
+
+# --- Peak-power sizing sweep -------------------------------------------------------------
+
+
+def test_photons_for_snr_inverts_photon_snr() -> None:
+    hw = TrackerHardware()
+    n = photons_for_snr(70.0, hw.noise_photons)
+    powered = dataclasses.replace(hw, beacon_power_w=1.0)
+    # Reconstruct the SNR from a power that yields exactly n photons at some range.
+    scale = n / signal_photons(powered, 300_000.0)
+    hw_scaled = dataclasses.replace(hw, beacon_power_w=scale)
+    assert math.isclose(photon_snr(hw_scaled, 300_000.0), 70.0, rel_tol=1e-9)
+
+
+def test_power_for_centroid_floor_round_trips_to_the_target() -> None:
+    hw = TrackerHardware()
+    target = 0.3e-6
+    power = power_for_centroid_floor(hw, 300_000.0, target)
+    powered = dataclasses.replace(hw, beacon_power_w=power)
+    assert math.isclose(photon_sigma_theta_rad(powered, 300_000.0), target, rel_tol=1e-9)
+
+
+def test_required_power_scales_as_range_squared() -> None:
+    hw = TrackerHardware()
+    near = power_for_centroid_floor(hw, 100_000.0, 0.3e-6)
+    far = power_for_centroid_floor(hw, 200_000.0, 0.3e-6)
+    assert math.isclose(far / near, 4.0, rel_tol=1e-9)
+
+
+def test_required_power_scales_as_beam_solid_angle() -> None:
+    narrow = dataclasses.replace(TrackerHardware(), beam_half_angle_rad=2.0e-3)
+    wide = dataclasses.replace(TrackerHardware(), beam_half_angle_rad=4.0e-3)
+    p_narrow = power_for_centroid_floor(narrow, 300_000.0, 0.3e-6)
+    p_wide = power_for_centroid_floor(wide, 300_000.0, 0.3e-6)
+    assert math.isclose(p_wide / p_narrow, 4.0, rel_tol=1e-9)
+
+
+def test_a_bigger_aperture_needs_less_power() -> None:
+    small = dataclasses.replace(TrackerHardware(), aperture_m=0.05)
+    big = dataclasses.replace(TrackerHardware(), aperture_m=0.10)
+    p_small = power_for_centroid_floor(small, 2_603_000.0, 0.3e-6)
+    p_big = power_for_centroid_floor(big, 2_603_000.0, 0.3e-6)
+    # Roughly 1/D⁴ in the shot-noise-dominated regime: doubling the dish cuts power ~16×.
+    assert p_big < p_small
+    assert 12.0 < p_small / p_big < 18.0
+
+
+def test_sweep_grid_size_and_monotonicity() -> None:
+    finding = peak_power_sweep()
+    spec = finding.spec
+    assert len(finding.cells) == len(spec.ranges_m) * len(spec.apertures_m)
+    # Every photon term lands on the target (good-centroiding) line by construction.
+    for cell in finding.cells:
+        assert math.isclose(
+            cell.photon_sigma_theta_rad, finding.target_sigma_theta_rad, rel_tol=1e-9
+        )
+    # Power rises with range (fixed aperture) and falls with aperture (fixed range).
+    for aperture in spec.apertures_m:
+        col = [c for c in finding.cells if c.aperture_m == aperture]
+        powers = [c.peak_power_w for c in col]
+        assert powers == sorted(powers)
+    for range_m in spec.ranges_m:
+        row = [c for c in finding.cells if c.range_m == range_m]
+        powers = [c.peak_power_w for c in row]
+        assert powers == sorted(powers, reverse=True)
+
+
+def test_close_swarm_is_milliwatts_and_far_wide_led_is_kilowatts() -> None:
+    finding = peak_power_sweep()
+    by_key = {(c.range_m, c.aperture_m): c for c in finding.cells}
+    # Surveyor↔PuffSat at 1 km, 5 cm dish: well under a watt.
+    assert by_key[(1.0e3, 0.05)].peak_power_w < 1.0e-2
+    # The far target link with a wide LED cone and a small dish is the only kW-class point.
+    assert by_key[(2.603e6, 0.02)].peak_power_w > 1.0e3
+    assert finding.min_peak_power_w < 1.0e-3
+    assert finding.max_peak_power_w > 1.0e3
+
+
+def test_narrow_beam_factor_is_the_solid_angle_ratio() -> None:
+    finding = peak_power_sweep()
+    expected = (finding.spec.beam_half_angle_rad / LASER_REFERENCE_BEAM_HALFANGLE_RAD) ** 2
+    assert math.isclose(finding.narrow_beam_factor, expected)
+
+
+def test_custom_spec_shrinks_the_grid() -> None:
+    spec = PeakPowerSpec(ranges_m=(1.0e3,), apertures_m=(0.05,))
+    finding = peak_power_sweep(spec)
+    assert len(finding.cells) == 1
+
+
+def test_format_peak_power_reports_table_and_reference() -> None:
+    text = format_peak_power_sweep(peak_power_sweep())
+    assert "peak-power sizing" in text
+    assert "range \\ aperture" in text
+    assert "narrow the beam" in text
+    assert "LED-vs-laser" in text
