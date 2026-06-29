@@ -432,6 +432,34 @@ spectrum processing gain + directional antennas + the deep-space regime, **not**
 "crypto stops jamming" (crypto is anti-spoof; geometry + processing gain are anti-jam); putting the
 two-way transponder on the PuffSat (transmit power, not mass, is why it stays one-way).
 
+**Near-Sun optical nav** (the Q-switched-laser carrier choice; paper-side, grill 2026-06-29):
+The near-Sun / Parker-periapsis chapter's nav carrier — **Q-switched 1064 nm laser** behind a
+**narrow monochromatic filter** with **ns time-gating**, *walking back* an earlier UV-C "solar-blind"
+idea. Solar-blind is a *terrestrial* trick (Earth's ozone darkens the sky <290 nm); in space there is
+no ozone, the Sun emits its UV-C straight at you, so the advantage evaporates while UV-C keeps all its
+hard-tech cost — meanwhile the real background (broadband K-corona + thermal-IR off the ~1500–2000 K
+heat shield) is beaten by **narrow-band × ns-gate × high peak power** at *any* line, and Q-switching is
+what supplies the peak power (the committed LEO `tracker_budget.peak_power_sweep` already treats beacon
+power as *peak*/strobed). 1064 nm **reuses the LEO tracker wavelength/detector lineage**. Two layers,
+two jobs. **(1) Local mm lever = two-way *pulsed* laser ranging** between the converging projectiles +
+the **Coordinator node** — self-clocking (no onboard precision clock, same rationale as the
+**Transponder** term, which *avoids* one-way for exactly that reason), scintillation-robust (a pulse
+punches through where a continuous lock drops), one pulse = range + optical two-way time-transfer
+(pins the turnaround delay as a bench constant) + blink-code ID. **(2) Inertial frame = one-way
+artificial-star beacons at ~1 AU** that broadcast their (Earth-pinned, km-known) positions; the
+corona-blinded star tracker is replaced by matching their angle-of-arrival pattern to the broadcast
+ephemerides, needing only **bearing-grade (~arcsec)** — mm rides on layer (1), not absolute attitude.
+RF-vs-optical, stated precisely: coronal plasma hurts RF as ~1/f² but **path-integral**, so the **long
+radial** 1 AU links are devastated (optical *mandatory*) while the **local transverse** link's bulk
+slab is **common-mode, differential-cancelled** (optical a *robustness upgrade*) — sharper than the
+chapter's current "tenuous, dual-frequency-removable." Two open *sizing* numbers (not forks): in-band
+thermal-IR rate at the heat-shield temperature, and coronal optical angle-of-arrival jitter on the
+radial path (both expected to close). Paper-side, reversible — no ADR. _Avoid_: one-way for the *mm*
+lever (clock-limited — that is what the **Transponder** term avoids); letting the 1 AU beacons carry
+mm *relative-range* load (GDOP/clock — they are the bearing frame only); "replace *all* RF ranging"
+(overreach — optical is mandatory on the long links, an upgrade on the local one); keeping UV-C for a
+"solar-blind" benefit that does not exist off-Earth.
+
 ## Relationships
 
 - A **PhysicsConfig** contains zero or more **Perturbations**.
