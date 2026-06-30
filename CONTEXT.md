@@ -513,6 +513,15 @@ mm *relative-range* load (GDOP/clock — they are the bearing frame only); "repl
   noted not adopted: a corner-cube LRA (~10 g, passive) as a dead-PuffSat
   safety/debris-verification tracker — a paper-side option, no sim impact.
 
+- **"GNSS at 150 000 km" — there is none (resolved, grill 2026-06-30).** Apogee precision is
+  the **Apogee nav constellation** (Ka-band authenticated broadcast, ADR 0020), *not* GNSS:
+  GPS reaches only ~20 200 km, and the apogee regime/geometry differ (the term's own _Avoid_
+  line). Real **GNSS** appears only at *low altitude* in the terminal phase, as the co-flyer's
+  ~2 m relative-geometry anchor. The near-Sun analog of the apoapsis-anchoring role is the
+  **1 AU artificial-star beacons** (a different architecture, same pattern), again not GNSS.
+  Resolution: reserve "GNSS" for the low-altitude terminal anchor; the far-end / apoapsis nav
+  is named by its constellation.
+
 - **Perigee as target vs diagnostic (resolved).** The design doc's A1 wording says
   the corrector nulls "predicted perigee error," but perigee is a *diagnostic*
   (debris-disposal margin + the §8 lever), not the objective. Resolution (ADR 0003):

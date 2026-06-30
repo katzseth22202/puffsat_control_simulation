@@ -2,6 +2,8 @@
 
 A closed-loop orbital mechanics simulation for **PuffSat pulsed propulsion** — the concept proposed in the paper [*Aim Is All You Need: A Speculative White Paper on PuffSat Pulsed Propulsion*](https://doi.org/10.5281/zenodo.16741183) by Seth Katz.
 
+> **📄 [Read the conclusion →](CONCLUSION.md)** — the verdict, the architecture, and the three confidence tiers (5 m plate capture proven in closed-loop simulation; ~10 cm and near-Sun extensions argued for the paper).
+
 ## What this is
 
 A PuffSat is a single-use microsatellite (~25–100 kg) that converts nearly all its mass into a high-velocity gas puff. A sequence of PuffSats deployed into a highly eccentric Earth orbit sequentially impacts a pusher plate on a target rocket, transferring momentum without requiring the target rocket to carry most of its own propellant.
