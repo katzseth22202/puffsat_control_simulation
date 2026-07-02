@@ -337,17 +337,32 @@ non-binding along-track, **blink-code ID** (no cross-unit clock — cross-track 
 so a shared clock would buy only ID, which blink-codes give for free), **anchor-as-surveyor**
 topology (the first unit looks *backward* at dark sky, maps the trailing swarm, gets hoop-pinned,
 broadcasts each follower's plate-relative offset → followers never stare into the forward
-flash/glare). The per-unit floor moves from geometry (easy — cm at 2–4 Hz even with a crude camera)
-to **metrology**: σ_hoop (≤1 cm → 5 cm plate; ~3 cm → 10 cm plate) and the camera's *own* calibrated
-distortion floor (differential-star astrometry → ~3 µrad). f is **passenger-g-bounded** (2–3 g:
+flash/glare). The per-unit floor moves from geometry to **metrology**, and the plate is the
+**RSS of two legs**, `plate = 3.03·√(σ_hoop² + (σ_θ·v/f)²)` (the 99 % 2-D Rayleigh criterion,
+ADR 0015): the hoop-pinned block-shift bias **σ_hoop**, and the per-unit camera scatter **σ_θ·v/f**
+(the camera's *own* calibrated distortion floor, differential-star astrometry → ~3 µrad, times the
+intra-train link range v/f). The km-class link (v/f ≈ 5.4 km at 2 Hz) is made **distortion-limited,
+not photon-limited**, by a **Q-switched beacon** — bright ns pulses at known timings (~100 kW peak,
+10 Hz, a few hundred mW *average* → a 30 mJ / 300 ns pulse), read in a matched gate and *somewhat
+directionally* (coarsely) pointed along the train axis: the collected pulse *energy* (avg ÷ rep)
+dumps ~10⁵ photons through the 5 mm gram-scale aperture (photon σ_θ ≈ 0.18 µrad, ~17× under the
+floor), the ns gate freezes smear, and a narrowband line filter rejects background (reusing the
+Q-switched 1064 nm lineage of **Near-Sun optical nav**). f is **passenger-g-bounded** (2–3 g:
 ascent gravity-loss floor below, comfort ceiling above; at fixed g, f ∝ rocket mass → heavier
 rockets run tighter trains → smaller plates); flash recovery (5 ms) and the ~95 ms mount ring-down
 are both non-binding ≤4 Hz, and the projectile-side cameras are immune regardless. Long train →
-periodic re-anchoring (~1 unit/min, <1%) if the bias drifts. **Committed claim: 10 cm plate (robust,
-~50× off the 5 m); 5 cm stretch contingent on σ_hoop ≤1 cm + a calibrated camera; 2 cm dropped.**
-Authority is *not* the binder (cm trims, 475 m funnel) — this stays **knowledge/metrology-limited**.
-_Avoid_: reading it as a change to the committed criterion; "cameras cut per-unit scatter" *without*
-the independent anchor (= the **Tracker array** trap); demanding a cross-unit clock.
+periodic re-anchoring (~1 unit/min, <1%) if the bias drifts. **Committed claim (sized, not
+simulated — `centering_budget.py`, ADR 0022): 10 cm plate robust** (σ_hoop ~1 cm rendezvous-lidar
+class ⊕ ~3 µrad calibrated camera → **5.8 cm nominal, 87× off the 5 m**; the 10 cm target tolerates
+σ_hoop ≤ 2.9 cm). **5 cm is contingent on tightening *both* legs** — a mm-class hoop AND a smaller
+scatter (4 Hz train → 0.8 cm, or diverse cameras ρ=0 → 0.94 cm, or a lower distortion floor) — since
+at the 2 Hz single-camera nominal the scatter leg (1.6 cm) already sets a ~4.9 cm floor; **2 cm
+dropped**. Authority is *not* the binder (cm trims, 475 m funnel) — this stays
+**knowledge/metrology-limited**, so its binders are bench characterizations, not sim targets (the
+reason it is a **sizing module**, not a closed-loop MC, and stays Tier-2). _Avoid_: reading it as a
+change to the committed criterion; "cameras cut per-unit scatter" *without* the independent anchor
+(= the **Tracker array** trap); demanding a cross-unit clock; the old "σ_hoop ≤1 cm → 5 cm" shorthand
+(it ignored the co-binding scatter leg).
 
 **Differential astrometry** (the σ_θ distortion hedge):
 Measuring the target beacon's bearing *relative to reference stars in the same FOV/exposure*
@@ -364,6 +379,15 @@ only to cancel bus *smear* and to justify cross-detector independence, never to 
 floor itself. **Payoff is spectrum-contingent** (no bench data — pure sim): a *low-spatial-frequency*
 (smooth) residual leaves a gradient ≪3 µrad over the nearest-star separation → a several-× win; a
 *high-spatial-frequency* (pixel-scale) residual makes differencing two uncorrelated errors √2 *worse*.
+**Thermal distortion is the favorable case** — a smooth, low-order figure change (focus/astigmatism,
+L ≫ break-even), so the star cross-check cancels it (~10× at L≈30 mrad) and active thermal management
+is a *backup*, not the primary lever; near the Sun this becomes a **reflective** heat-reject front
+element (dumps the broadband load out; only ~1% absorbed; its common-path smooth distortion is itself
+cancelled) + artificial-star beacons (**Near-Sun optical nav**), with the in-band coronal IR the
+filter *cannot* reject handled by ns time-gating (ADR 0022). **Physical diversity (ρ→0) means separate
+detection chains, not colors**: two beacon wavelengths on one camera share the *achromatic* detector-
+and thermal-figure distortion (ρ≈1) and decorrelate only the *chromatic* term (a targeted lateral-color
+self-cal), so color is not a substitute for the array or the co-flyer.
 So the deliverable is a **sensitivity curve** (differential residual vs. assumed distortion correlation
 length, break-even marked) that *outputs a bench-characterization requirement* (a paper §-worthy
 result), not a point claim. **Merged with the Tracker array audit** (#1+#4 = one distortion-field

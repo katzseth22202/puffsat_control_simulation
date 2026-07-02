@@ -139,11 +139,22 @@ This is **knowledge/metrology-limited, not control-limited** — cm trims sit de
 475 m funnel, so it does not resurrect MPC. Its binding numbers (the hoop precision σ_hoop and
 the camera's calibrated distortion floor) are **bench/hardware characterizations a simulation
 cannot produce**; a closed-loop Monte Carlo here would only sharpen a distribution, not falsify
-the architecture. It is therefore carried as a **deferred extension**. The committed claim:
-**10 cm robust** (~50× off the 5 m baseline); **5 cm contingent** on σ_hoop ≤ 1 cm and a
-calibrated camera. (If a notch more rigor is ever wanted, the right move is a *pure sizing
-module* outputting plate-size-vs-metrology sensitivity — matching the
-`tracker_budget.py` / `apogee_nav.py` / `distortion_field.py` precedent — not an MC.)
+the architecture. It is therefore carried as a **deferred extension**, now *sized* rather than
+hand-waved by a pure sizing module ([`centering_budget.py`](puffsat_sim/centering_budget.py),
+[ADR 0022](docs/adr/0022-surveyor-anchored-centering-tier2-sizing.md)), matching the
+`tracker_budget.py` / `apogee_nav.py` / `distortion_field.py` precedent.
+
+The plate is the **RSS of two legs**, `plate = 3.03·√(σ_hoop² + (σ_θ·v/f)²)`. The km-class
+intra-train link is kept **distortion-limited, not photon-limited**, by a **Q-switched,
+coarse-pointed beacon** (bright ns pulses — ~100 kW peak, few-hundred-mW average — read in a
+matched gate; photon term ~17× under the 3 µrad floor). The committed claim: **10 cm robust**
+(σ_hoop ~1 cm rendezvous-lidar class ⊕ ~3 µrad calibrated camera → **5.8 cm nominal, 87× off the
+5 m**; 10 cm tolerates σ_hoop ≤ 2.9 cm); **5 cm contingent on tightening *both* legs** — a
+mm-class hoop **and** a smaller scatter (4 Hz train, diverse cameras, or a lower distortion
+floor), since the scatter leg alone sets a ~4.9 cm floor at the nominal point. It remains
+**argued/sized, not simulated**: nothing new is simulatable for it with the current architecture,
+so the simulated frontier stays the 5 m plate and the right next rigor for 10 cm is a **bench
+test**.
 
 ## Tier 3 — near-Sun / Parker extension (sketch, open numbers)
 
