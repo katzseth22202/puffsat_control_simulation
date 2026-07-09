@@ -93,6 +93,38 @@ beacon-design decision the sizing forced.
    against the achromatic detector/thermal floor. (Corollary for differential astrometry: measure
    the reference in the beacon's band to avoid a lateral-color residual.)
 
+## Execution-multiplier check (2026-07-09, recorded not coded)
+
+The sizing assumes **zero execution penalty**: the plate's scatter leg is the *knowledge* σ_δ.
+The 2026-07 correctness review flagged the one way a sim could falsify this — D1.1 measured the
+flown C3b loop at **~3× the closed-form floor at metre scale**, and a 3× multiplier on the 1.62 cm
+scatter would blow 5.8 → ~15 cm. The check flew the real `terminal_tick` law (3σ gate / 35 s track
+window / 45° lag hold / 1 °/s slew / 5 mN floor / 400 mN cap) on the double integrator with
+**constant** cm-grade knowledge — the intra-train link does not close, unlike the Tier-1 σ_θ·R —
+over the 247 s terminal span (N = 300, entries 0.5/1.5 m). Result: **the multiplier vanishes at
+cm scale — the zero-penalty assumption is CONFIRMED, not falsified.**
+
+- **Scatter leg:** flown per-axis σ **1.64 cm = 1.01×** the knowledge σ_δ with the honest
+  *per-unit-bias* noise character (distortion is a bias — the D1.1 re-run finding), **0.86×**
+  under the Gauss–Markov τ = 10 s stress convention (the loop partially averages the drift).
+  Flown plate 5.8 cm — identical to the sized nominal. Deterministic dynamics floor 6 × 10⁻⁵ m;
+  cadence-insensitive (1 Hz ≈ 2 Hz).
+- **Why the metre-scale 3× does not transfer:** it is a property of the *closing* σ_θ·R noise
+  structure — the loop must fire early through 26 m-class noise. The anchor run on the same
+  harness at Tier-1 noise reproduces that structure (σ ≈ 6.7× the homing floor at 3.2 µrad,
+  2.2× at 10 µrad), so the null at cm scale is a real absence, not a blind harness.
+- **Hoop-leg late retarget (the one real structure found):** the block-shift correction reaches
+  follower n with t_go = n/f, and the loop executes a step b only once t_go clears roughly the
+  ½·a_max·t² bound plus ZEM-law overhead — measured residual is knowledge-limited (~1.6–2 cm) by
+  t_go ≈ 4 s for b = 0.1 m, ~6–8 s for 0.3 m, ~12 s for 0.6 m. At 2 Hz that means the first
+  ~8–24 followers cannot fully execute a dm-to-m-class block shift — a **scheme constraint**
+  (issue the hoop read early / treat the first seconds of train as surveyor-class), not a plate
+  falsification; the steady-train plate is unaffected.
+
+This passes the closeout falsification test in the right direction: the check could have
+falsified "10 cm robust" (any multiplier ≳ 1.9 would) and did not. The throwaway harness is not
+committed (sized-not-simulated boundary stands); the numbers above are the record.
+
 ## Consequences
 
 - **The Tier-2 10 cm claim is now *sized*, not hand-waved**: reachable with rendezvous-lidar-class
