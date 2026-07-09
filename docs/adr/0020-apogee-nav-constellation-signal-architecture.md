@@ -114,7 +114,10 @@ carry the two-way transponder.
   sizing module (link budget + Doppler/velocity budget + transponder mass/power) and the GDOP /
   minimum-member ring-vs-shell sweep (`gdop_sweep`/`GdopSweepFinding`/`format_gdop_sweep`) now quantify
   the architecture. Sweep findings: min members **shell 3 / ring 4** (the ring's N=3 occults
-  antipodally to 2 LOS, below the 3-LOS solve floor), both meeting the 0.66 mm/s target; the **ring is
+  antipodally to 2 LOS, below the 3-LOS solve floor) — **geometry-only**: the sweep solves
+  position/velocity with the receiver clock assumed held (the TCXO ledger above prices solving
+  clock-bias *from the signal*, which needs a **4th usable member**), both meeting the 0.66 mm/s
+  target; the **ring is
   ~1.42× tighter than the shell on the binding transverse axis at equal N** (in-plane members all read
   the binding axis; the shell spends members on the weak orbit-normal axis) — a coplanar ring is the
   cheaper way to pin transverse, the shell only adds the normal axis; **σ_T ~ 1/√N** (shell TDOP·√N ≈

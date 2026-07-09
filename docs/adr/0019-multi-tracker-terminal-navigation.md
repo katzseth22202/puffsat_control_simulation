@@ -119,7 +119,7 @@ Both levers were quantified against the D1.1 capture-grade (3.2 µrad effective)
 - **The target-side array buys √N down to the smear common-mode floor.** A `Tracker`'s σ_θ splits
   into the **independent** part (distortion ⊕ gyro ⊕ photon — separately bench-calibrated, so it
   averages as σ_indep/√N) and the **common** part (`SMEAR_COMMON_SIGMA_RAD`, the same beacon imaged
-  by every detector, which √N cannot cross). Five 10 µrad detectors fuse to **1.62 µrad** at the
+  by every detector, which √N cannot cross). Five bench-grade (3.2 µrad-class) detectors fuse to **1.62 µrad** at the
   2603 km target range — **2.0× inside** the requirement — with **no phasing/baseline dependency**
   (the √N is statistical, separation-agnostic; the X-pattern spread is for coverage and
   common-boresight rejection, not precision). This confirms decision 1's "ranging is a red herring"
@@ -130,6 +130,19 @@ Both levers were quantified against the D1.1 capture-grade (3.2 µrad effective)
   σ_θ·R scales with range. The credit is real only if the rocket→target vector is pinned
   independently of the long baseline (`COFLYER_RELGEOM_SIGMA_M`, the GNSS-pinned floor); whether the
   rocket can *hold* that 500 km range and stay in the GNSS volume is the Stage 2 gate.
+
+### Correction (2026-07-09): the fused detectors are bench-grade, not 10 µrad
+
+The title's and decision 1's "recover capture-grade nav from **10 µrad** detectors" overstates what
+the implemented constants do. `tracker_fusion.py` models detectors of the σ_θ gate's own
+**3.2 µrad class** (independent 3.06 µrad ⊕ smear common 0.87 µrad), so the 5-array's 1.62 µrad is
+five *bench-grade* detectors buying a ~2× margin against the distortion floor proving optimistic —
+not a rescue from 10 µrad hardware. With true 10 µrad-class detectors the same fusion gives:
+five → **4.56 µrad** (fails the ~3 µrad requirement); a dozen → **3.02 µrad** (marginal). The paper
+states this correctly (committed five bench-grade → 1.6 µrad; fallback dozen × 10 µrad → ~2.9 µrad).
+So the array hedges a ~2× floor miss at N = 5; recovering from the full 10 µrad ceiling takes
+N ≈ 12. The co-flyer lever is unaffected (range, not detector class). Numbers, code, and the D1.1
+re-run verdicts are all unchanged — this corrects the prose only.
 
 ## Implementation findings — co-flyer phasing gate (Stage 2, 2026-06-14)
 

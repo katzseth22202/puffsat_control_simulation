@@ -74,7 +74,7 @@ def test_effective_sigma_theta_is_lateral_over_design_range() -> None:
 
 
 def test_target_array_alone_recovers_capture_grade_without_the_coflyer() -> None:
-    # 5× 10 µrad detectors on the target → effective σ_θ inside the D1.1 capture-grade.
+    # 5× bench-grade (3.2 µrad-class) detectors on the target → σ_θ inside the D1.1 capture-grade.
     finding = tracker_fusion_finding([target_array(5)])
     assert finding.effective_sigma_theta_rad < D1_CAPTURE_GRADE_SIGMA_THETA_RAD
     assert finding.meets_capture_grade

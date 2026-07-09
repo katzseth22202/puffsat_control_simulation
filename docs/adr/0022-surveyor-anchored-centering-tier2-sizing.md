@@ -60,9 +60,10 @@ beacon-design decision the sizing forced.
    tightened.** At the nominal point — σ_hoop 1 cm (rendezvous-lidar class) ⊕ scatter 1.62 cm
    (3 µrad calibrated camera × 5.4 km) → arrival 1.9 cm → **5.8 cm plate (87× off the 5 m
    baseline)**; the 10 cm target tolerates σ_hoop ≤ **2.9 cm**. **5 cm is not reached at nominal**:
-   the scatter leg alone (1.62 cm) sets a ~4.9 cm floor, so 5 cm requires a mm-class hoop **and** a
-   smaller scatter — a 4 Hz train (→ 0.8 cm), diverse cameras (ρ=0 → 0.94 cm), or a lower distortion
-   floor. This is a **refinement** of the earlier "σ_hoop ≤ 1 cm → 5 cm" shorthand, which credited
+   the scatter leg alone (1.62 cm) sets a ~4.9 cm floor — a mm-class hoop by itself lands at
+   **4.99 cm** (the module's rangefinder reference point), formally under 5 cm but with zero
+   margin — so *robust* 5 cm requires a mm-class hoop **and** a smaller scatter — a 4 Hz train
+   (→ 0.8 cm), diverse cameras (ρ=0 → 0.94 cm), or a lower distortion floor. This is a **refinement** of the earlier "σ_hoop ≤ 1 cm → 5 cm" shorthand, which credited
    only the hoop and ignored the co-binding scatter leg. **2 cm dropped.**
 
 5. **The distortion floor is thermally robust because thermal distortion is smooth (low

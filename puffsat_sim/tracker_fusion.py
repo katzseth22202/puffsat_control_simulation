@@ -3,8 +3,10 @@
 D1.1 found the combined entry×noise stress needs an **effective** terminal-nav grade of ~3 µrad,
 and the σ_θ budget gate (ADR 0018, :mod:`puffsat_sim.tracker_budget`) showed a single conservative
 detector achieves 3.2 µrad — resting on one 3 µrad bench-calibratable distortion floor. This gate
-quantifies how a *multi-tracker* architecture recovers capture-grade nav from cruder, redundant
-10 µrad detectors, by two independent levers (ADR 0019):
+quantifies how a *multi-tracker* architecture of redundant detectors of that same bench-grade
+(3.2 µrad) class recovers capture-grade nav *with margin* — hedging the floor proving optimistic,
+not rescuing 10 µrad hardware (five true 10 µrad detectors fuse only to ~4.6 µrad and still fail;
+the 10 µrad class needs N ≈ 12 to go marginal) — by two independent levers (ADR 0019):
 
 * **Averaging (√N):** N independent detectors on one platform reduce the *independent* part of the
   per-detector σ_θ as ``1/√N`` while the *common-mode* floor (correlated distortion + beacon-shape
@@ -96,7 +98,7 @@ def effective_sigma_theta_rad(fused_lateral_m: float, design_range_m: float) -> 
 
 
 def target_array(n_detectors: int) -> Tracker:
-    """N independent 10 µrad-class detectors on the target (rel-geom 0 — it *is* the target)."""
+    """N independent bench-grade (3.2 µrad-class) detectors on the target (rel-geom 0)."""
     return Tracker(range_m=TARGET_RANGE_M, n_detectors=n_detectors)
 
 
@@ -199,7 +201,7 @@ def format_tracker_fusion(finding: TrackerFusionFinding) -> str:
         f" at the {finding.design_range_m / 1e3:.0f} km design range.",
         f"  vs the D1.1 capture-grade {finding.capture_grade_sigma_theta_rad * 1e6:g} µrad:"
         f" {finding.margin:.1f}× inside — homing floor {finding.homing_floor_m:.2f} m.",
-        f"  → {verdict}: cruder 10 µrad detectors fused recover the ~3 µrad D1.1 requirement.",
+        f"  → {verdict}: redundant bench-grade detectors fused vs the ~3 µrad D1.1 requirement.",
     ]
     return "\n".join(lines)
 

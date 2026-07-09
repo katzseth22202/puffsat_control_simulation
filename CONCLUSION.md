@@ -60,7 +60,8 @@ because the baseline meets the requirement with margin ([ADR 0018](docs/adr/0018
   receives one-way ([ADR 0020](docs/adr/0020-apogee-nav-constellation-signal-architecture.md)).
   This is **not GNSS** — GPS reaches only ~20 200 km, and the apogee regime and geometry
   differ. It is sized "match-not-beat" the C1 nav grade (transverse-velocity σ well inside
-  requirement at a minimal 3-member geometry). The corrector consumes this state.
+  requirement at a minimal 3-member geometry — 4 members when the receiver clock bias is
+  solved from the signal rather than held). The corrector consumes this state.
 - **Terminal homing** is angular: the PuffSat homes on an **active optical beacon**
   (LED, or a **Q-switched 1064 nm laser** for strobed peak power) **centroided against a
   reference-star field via differential astrometry** — the "Gaia trick," which cancels

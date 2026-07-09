@@ -211,7 +211,11 @@ def min_members_for_target(
     geometry: str = "shell",
     max_members: int = 64,
 ) -> int | None:
-    """Smallest member count whose transverse axis is observable and meets ``target_m_s``."""
+    """Smallest member count whose transverse axis is observable and meets ``target_m_s``.
+
+    Geometry-only: the solve is position/velocity with the receiver clock held; solving clock-bias
+    from the signal (the TCXO option in the ADR 0020 mass ledger) needs one member more.
+    """
     for n in range(3, max_members + 1):
         los = constellation_los_units(n, geometry)
         if len(los) < 3 or not axis_observable(los, TRANSVERSE_AXIS):
