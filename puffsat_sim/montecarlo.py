@@ -79,6 +79,16 @@ from puffsat_sim.sink import append_record, plan_resume, read_records
 PROPAGATOR_MASS_KG: float = 1.0
 BURN_ISP_SENTINEL_S: float = 1.0e12
 
+
+def scale_thrust_for_propagator_mass(thrust_n: float, wet_mass_kg: float) -> float:
+    """Scale a commanded thrust from the real wet mass onto ``PROPAGATOR_MASS_KG`` (B1).
+
+    Shared by every finite-burn call site (the A1 corrector's burn, the C3a feedforward,
+    the C3b terminal loop) so the F·m_p/m_wet scaling is written once.
+    """
+    return thrust_n * PROPAGATOR_MASS_KG / wet_mass_kg
+
+
 # Nominal truth inputs (ADR 0011 decision 5): zero injection + nominal coefficients
 # (perfect model), so x_true is the nominal apogee state and the only predict-vs-execute
 # divergence is whatever the RunVariant injects.
@@ -174,7 +184,7 @@ def _finite_burn_maneuver(actuator: Actuator, correction_rtn: Vec3, ctx: RunCont
     corr_eme = rtn_to_cartesian(correction_rtn, ctx.apo_basis)
     norm = (corr_eme[0] ** 2 + corr_eme[1] ** 2 + corr_eme[2] ** 2) ** 0.5  # nonzero: caller guards
     direction = Vector3D(corr_eme[0] / norm, corr_eme[1] / norm, corr_eme[2] / norm)
-    thrust_eff = PROPAGATOR_MASS_KG * actuator.max_thrust_n / actuator.wet_mass_kg
+    thrust_eff = scale_thrust_for_propagator_mass(actuator.max_thrust_n, actuator.wet_mass_kg)
     return ConstantThrustManeuver(
         ctx.apo_date,
         burn.duration_s,

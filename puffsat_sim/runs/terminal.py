@@ -23,7 +23,7 @@ from puffsat_sim.descent import (
     to_absolute_date,
 )
 from puffsat_sim.forces import AtmosphericDrag
-from puffsat_sim.montecarlo import BURN_ISP_SENTINEL_S, PROPAGATOR_MASS_KG
+from puffsat_sim.montecarlo import BURN_ISP_SENTINEL_S, scale_thrust_for_propagator_mass
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import (
     build_fixed_step_propagator_from_orbit,
@@ -123,7 +123,7 @@ def run_terminal_feedforward(
             ConstantThrustManeuver(
                 epoch.shiftedBy(cmd.start_s),
                 cmd.duration_s,
-                cmd.thrust_n * PROPAGATOR_MASS_KG / PUFFSAT_WET_MASS_KG,
+                scale_thrust_for_propagator_mass(cmd.thrust_n, PUFFSAT_WET_MASS_KG),
                 BURN_ISP_SENTINEL_S,
                 FrameAlignedProvider(frame),
                 Vector3D(cmd.direction[0], cmd.direction[1], cmd.direction[2]),

@@ -56,9 +56,9 @@ from puffsat_sim.guidance import (
 )
 from puffsat_sim.montecarlo import (
     BURN_ISP_SENTINEL_S,
-    PROPAGATOR_MASS_KG,
     nominal_inputs,
     physics_from_inputs,
+    scale_thrust_for_propagator_mass,
 )
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import (
@@ -226,7 +226,7 @@ def run_guidance(
                 ConstantThrustManeuver(
                     state.getDate(),
                     control_period_s,
-                    tick.thrust_n * PROPAGATOR_MASS_KG / PUFFSAT_WET_MASS_KG,
+                    scale_thrust_for_propagator_mass(tick.thrust_n, PUFFSAT_WET_MASS_KG),
                     BURN_ISP_SENTINEL_S,
                     attitude,
                     Vector3D(attitude_dir[0], attitude_dir[1], attitude_dir[2]),
