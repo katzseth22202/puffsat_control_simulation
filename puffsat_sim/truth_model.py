@@ -24,7 +24,7 @@ The orbit used matches the near-term architecture from the paper:
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from typing import Any
 
 from puffsat_sim import mission, presets
 from puffsat_sim.config import OrbitalConfig, PhysicsConfig
@@ -48,22 +48,26 @@ from puffsat_sim.orbital_math import (
     wrap_to_pi,
 )
 
-# Importing propagator starts the JVM and loads Orekit data.
+# Importing descent starts the JVM and loads Orekit data.
 # All org.orekit.* imports must follow this line.
-from puffsat_sim.propagator import build_propagator  # noqa: E402
+from puffsat_sim.descent import earth_model, to_absolute_date  # noqa: E402
+from puffsat_sim.propagator import build_propagator
 
-from org.orekit.bodies import CelestialBodyFactory, OneAxisEllipsoid
+from org.orekit.bodies import CelestialBodyFactory
 from org.orekit.frames import FramesFactory
 from org.orekit.orbits import KeplerianOrbit
 from org.orekit.propagation.events import AltitudeDetector, EclipseDetector, EventsLogger
 from org.orekit.propagation.events.handlers import ContinueOnEvent, StopOnDecreasing
-from org.orekit.time import AbsoluteDate, TimeScalesFactory
-from org.orekit.utils import Constants, IERSConventions
+from org.orekit.utils import Constants
 
 
-def _to_absolute_date(dt: datetime) -> AbsoluteDate:
-    utc = TimeScalesFactory.getUTC()
-    return AbsoluteDate(dt.year, dt.month, dt.day, dt.hour, dt.minute, float(dt.second), utc)
+def _final_pos(
+    orbital_config: OrbitalConfig, physics_config: PhysicsConfig, epoch: Any, period: float
+) -> tuple[float, float, float]:
+    """The one-period endpoint position, for differencing two physics configs (ADR 0017)."""
+    prop = build_propagator(orbital_config, physics_config)
+    pv = prop.propagate(epoch.shiftedBy(period)).getPVCoordinates().getPosition()
+    return float(pv.getX()), float(pv.getY()), float(pv.getZ())
 
 
 def propagate_one_period(orbital_config: OrbitalConfig, physics_config: PhysicsConfig) -> None:
@@ -72,7 +76,7 @@ def propagate_one_period(orbital_config: OrbitalConfig, physics_config: PhysicsC
     period = keplerian_period(a)
     v_perigee = perigee_speed(a, orbital_config.perigee_alt_m)
 
-    epoch = _to_absolute_date(orbital_config.epoch)
+    epoch = to_absolute_date(orbital_config.epoch)
     propagator = build_propagator(orbital_config, physics_config)
     initial_pv = propagator.getInitialState().getPVCoordinates()
     r_0 = initial_pv.getPosition()
@@ -126,16 +130,12 @@ def propagate_to_interception(orbital_config: OrbitalConfig, physics_config: Phy
     a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
 
-    epoch = _to_absolute_date(orbital_config.epoch)
+    epoch = to_absolute_date(orbital_config.epoch)
     propagator = build_propagator(orbital_config, physics_config)
 
     # WGS84 ellipsoid in the Earth-fixed frame — used by AltitudeDetector to
     # compute geodetic altitude above the surface.
-    earth = OneAxisEllipsoid(
-        Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-        Constants.WGS84_EARTH_FLATTENING,
-        FramesFactory.getITRF(IERSConventions.IERS_2010, True),
-    )
+    earth = earth_model()
     detector = AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(
         StopOnDecreasing()  # type: ignore[no-untyped-call]
     )
@@ -169,7 +169,7 @@ def report_j2_signatures(orbital_config: OrbitalConfig) -> None:
     period = keplerian_period(a)
     i = orbital_config.inclination_rad
 
-    epoch = _to_absolute_date(orbital_config.epoch)
+    epoch = to_absolute_date(orbital_config.epoch)
     propagator = build_propagator(orbital_config, presets.j2())
 
     initial_state = propagator.getInitialState()
@@ -216,16 +216,15 @@ def report_higher_order_gravity_signatures(orbital_config: OrbitalConfig) -> Non
     """
     a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
-    epoch = _to_absolute_date(orbital_config.epoch)
+    epoch = to_absolute_date(orbital_config.epoch)
 
-    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
-        prop = build_propagator(orbital_config, physics_config)
-        pv = prop.propagate(epoch.shiftedBy(period)).getPVCoordinates().getPosition()
-        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
-
-    pos_j2 = _final_pos(presets.j2())
-    pos_8x8 = _final_pos(PhysicsConfig((Geopotential(degree=8, order=8),)))
-    pos_8z = _final_pos(PhysicsConfig((Geopotential(degree=8, order=0),)))
+    pos_j2 = _final_pos(orbital_config, presets.j2(), epoch, period)
+    pos_8x8 = _final_pos(
+        orbital_config, PhysicsConfig((Geopotential(degree=8, order=8),)), epoch, period
+    )
+    pos_8z = _final_pos(
+        orbital_config, PhysicsConfig((Geopotential(degree=8, order=0),)), epoch, period
+    )
     dr_full = math.sqrt(sum((p - q) ** 2 for p, q in zip(pos_j2, pos_8x8, strict=True)))
     dr_zonal = math.sqrt(sum((p - q) ** 2 for p, q in zip(pos_j2, pos_8z, strict=True)))
 
@@ -243,16 +242,10 @@ def report_third_body_signatures(orbital_config: OrbitalConfig) -> None:
     """
     a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
-    epoch = _to_absolute_date(orbital_config.epoch)
+    epoch = to_absolute_date(orbital_config.epoch)
 
-    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
-        prop = build_propagator(orbital_config, physics_config)
-        state = prop.propagate(epoch.shiftedBy(period))
-        pv = state.getPVCoordinates().getPosition()
-        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
-
-    pos_j2 = _final_pos(presets.j2())
-    pos_j2_tb = _final_pos(presets.j2_third_body())
+    pos_j2 = _final_pos(orbital_config, presets.j2(), epoch, period)
+    pos_j2_tb = _final_pos(orbital_config, presets.j2_third_body(), epoch, period)
 
     dr = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos_j2, pos_j2_tb, strict=True)))
 
@@ -275,25 +268,15 @@ def report_srp_signatures(orbital_config: OrbitalConfig) -> None:
     physics_srp = presets.j2_third_body_srp()
     a, _ = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
-    epoch = _to_absolute_date(orbital_config.epoch)
+    epoch = to_absolute_date(orbital_config.epoch)
 
-    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
-        prop = build_propagator(orbital_config, physics_config)
-        state = prop.propagate(epoch.shiftedBy(period))
-        pv = state.getPVCoordinates().getPosition()
-        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
-
-    pos_tb = _final_pos(presets.j2_third_body())
-    pos_srp = _final_pos(physics_srp)
+    pos_tb = _final_pos(orbital_config, presets.j2_third_body(), epoch, period)
+    pos_srp = _final_pos(orbital_config, physics_srp, epoch, period)
     dr = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos_tb, pos_srp, strict=True)))
 
     # Eclipse detection: count shadow entry/exit crossings during one period.
     sun = CelestialBodyFactory.getSun()
-    earth = OneAxisEllipsoid(
-        Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-        Constants.WGS84_EARTH_FLATTENING,
-        FramesFactory.getITRF(IERSConventions.IERS_2010, True),
-    )
+    earth = earth_model()
     eclipse_prop = build_propagator(orbital_config, physics_srp)
     logger: EventsLogger = EventsLogger()  # type: ignore[no-untyped-call]
     # EclipseDetector defaults to StopOnIncreasing, which would halt the arc at
@@ -341,18 +324,14 @@ def report_drag_signatures(orbital_config: OrbitalConfig) -> None:
     mu: float = float(Constants.WGS84_EARTH_MU)
 
     def _energy_and_speed_at_200km(physics_config: PhysicsConfig) -> tuple[float, float]:
-        earth = OneAxisEllipsoid(
-            Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-            Constants.WGS84_EARTH_FLATTENING,
-            FramesFactory.getITRF(IERSConventions.IERS_2010, True),
-        )
+        earth = earth_model()
         prop = build_propagator(orbital_config, physics_config)
         prop.addEventDetector(
             AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(
                 StopOnDecreasing()  # type: ignore[no-untyped-call]
             )
         )
-        epoch = _to_absolute_date(orbital_config.epoch)
+        epoch = to_absolute_date(orbital_config.epoch)
         state = prop.propagate(epoch.shiftedBy(period))
         pv = state.getPVCoordinates()
         pos = pv.getPosition()
@@ -399,16 +378,12 @@ def report_relativity_signatures(orbital_config: OrbitalConfig) -> None:
     """
     a, e = keplerian_elements(orbital_config.perigee_alt_m, orbital_config.apogee_alt_m)
     period = keplerian_period(a)
-    epoch = _to_absolute_date(orbital_config.epoch)
+    epoch = to_absolute_date(orbital_config.epoch)
 
-    def _final_pos(physics_config: PhysicsConfig) -> tuple[float, float, float]:
-        prop = build_propagator(orbital_config, physics_config)
-        state = prop.propagate(epoch.shiftedBy(period))
-        pv = state.getPVCoordinates().getPosition()
-        return float(pv.getX()), float(pv.getY()), float(pv.getZ())
-
-    pos_j2 = _final_pos(presets.j2())
-    pos_j2_rel = _final_pos(PhysicsConfig((Geopotential(degree=2), Relativity())))
+    pos_j2 = _final_pos(orbital_config, presets.j2(), epoch, period)
+    pos_j2_rel = _final_pos(
+        orbital_config, PhysicsConfig((Geopotential(degree=2), Relativity())), epoch, period
+    )
     dr = math.sqrt(sum((p - q) ** 2 for p, q in zip(pos_j2, pos_j2_rel, strict=True)))
 
     d_pomega = schwarzschild_apsidal_advance_per_orbit(a, e)

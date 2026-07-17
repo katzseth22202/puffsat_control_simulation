@@ -14,8 +14,6 @@ or:
 from __future__ import annotations
 
 import math
-from datetime import datetime
-from typing import Any
 
 import pytest
 
@@ -30,10 +28,11 @@ from puffsat_sim.forces.geopotential import (
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period, wrap_to_pi
 
 try:
-    # Importing propagator boots the JVM and loads orekit-data.zip from the cwd.
+    # Importing descent boots the JVM and loads orekit-data.zip from the cwd.
+    from puffsat_sim.descent import earth_model, to_absolute_date
     from puffsat_sim.propagator import build_propagator
 
-    from org.orekit.bodies import CelestialBodyFactory, OneAxisEllipsoid
+    from org.orekit.bodies import CelestialBodyFactory
     from org.orekit.frames import FramesFactory
     from org.orekit.orbits import KeplerianOrbit
     from org.orekit.propagation.events import (
@@ -42,8 +41,7 @@ try:
         EventsLogger,
     )
     from org.orekit.propagation.events.handlers import ContinueOnEvent, StopOnDecreasing
-    from org.orekit.time import AbsoluteDate, TimeScalesFactory
-    from org.orekit.utils import Constants, IERSConventions
+    from org.orekit.utils import Constants
 except Exception as exc:  # pragma: no cover - environment guard
     pytest.skip(f"Orekit unavailable: {exc}", allow_module_level=True)
 
@@ -55,27 +53,14 @@ def config() -> OrbitalConfig:
     return mission.NOMINAL_CONFIG
 
 
-def _abs_date(dt: datetime) -> Any:
-    utc = TimeScalesFactory.getUTC()
-    return AbsoluteDate(dt.year, dt.month, dt.day, dt.hour, dt.minute, float(dt.second), utc)
-
-
 def _period(config: OrbitalConfig) -> float:
     a, _ = keplerian_elements(config.perigee_alt_m, config.apogee_alt_m)
     return keplerian_period(a)
 
 
-def _earth() -> Any:
-    return OneAxisEllipsoid(
-        Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-        Constants.WGS84_EARTH_FLATTENING,
-        FramesFactory.getITRF(IERSConventions.IERS_2010, True),
-    )
-
-
 def _final_position(config: OrbitalConfig, physics: PhysicsConfig) -> tuple[float, float, float]:
     prop = build_propagator(config, physics)
-    state = prop.propagate(_abs_date(config.epoch).shiftedBy(_period(config)))
+    state = prop.propagate(to_absolute_date(config.epoch).shiftedBy(_period(config)))
     p = state.getPVCoordinates().getPosition()
     return float(p.getX()), float(p.getY()), float(p.getZ())
 
@@ -109,7 +94,7 @@ def test_keplerian_one_period_round_trip(config: OrbitalConfig) -> None:
     """A pure-Keplerian orbit must return to its start after exactly one period."""
     prop = build_propagator(config, presets.two_body())
     pv0 = prop.getInitialState().getPVCoordinates()
-    state = prop.propagate(_abs_date(config.epoch).shiftedBy(_period(config)))
+    state = prop.propagate(to_absolute_date(config.epoch).shiftedBy(_period(config)))
     pv = state.getPVCoordinates()
     assert float(pv0.getPosition().distance(pv.getPosition())) < 1.0  # actual ~1e-8 m
     assert float(pv0.getVelocity().distance(pv.getVelocity())) < 1e-3
@@ -117,12 +102,12 @@ def test_keplerian_one_period_round_trip(config: OrbitalConfig) -> None:
 
 def test_interception_stops_at_200km(config: OrbitalConfig) -> None:
     """AltitudeDetector must stop the descending arc at the 200 km crossing."""
-    earth = _earth()
+    earth = earth_model()
     prop = build_propagator(config, presets.two_body())
     prop.addEventDetector(
         AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
     )
-    epoch = _abs_date(config.epoch)
+    epoch = to_absolute_date(config.epoch)
     period = _period(config)
     state = prop.propagate(epoch.shiftedBy(period))
 
@@ -147,7 +132,9 @@ def test_j2_secular_rates_match_analytic(config: OrbitalConfig) -> None:
 
     prop = build_propagator(config, presets.j2())
     orbit_0 = KeplerianOrbit(prop.getInitialState().getOrbit())
-    orbit_f = KeplerianOrbit(prop.propagate(_abs_date(config.epoch).shiftedBy(period)).getOrbit())
+    orbit_f = KeplerianOrbit(
+        prop.propagate(to_absolute_date(config.epoch).shiftedBy(period)).getOrbit()
+    )
 
     d_raan = wrap_to_pi(
         orbit_f.getRightAscensionOfAscendingNode() - orbit_0.getRightAscensionOfAscendingNode()
@@ -212,14 +199,14 @@ def test_drag_removes_orbital_energy(config: OrbitalConfig) -> None:
     which would confound a comparison against the lower-fidelity j2_third_body_srp.
     """
     mu = float(Constants.WGS84_EARTH_MU)
-    earth = _earth()
+    earth = earth_model()
 
     def energy_at_interception(physics: PhysicsConfig) -> float:
         prop = build_propagator(config, physics)
         prop.addEventDetector(
             AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
         )
-        state = prop.propagate(_abs_date(config.epoch).shiftedBy(_period(config)))
+        state = prop.propagate(to_absolute_date(config.epoch).shiftedBy(_period(config)))
         pv = state.getPVCoordinates()
         r = float(pv.getPosition().getNorm())
         v = float(pv.getVelocity().getNorm())
@@ -243,7 +230,7 @@ def test_f10p7_drives_drag_density(config: OrbitalConfig) -> None:
     regime-switching).
     """
     mu = float(Constants.WGS84_EARTH_MU)
-    earth = _earth()
+    earth = earth_model()
 
     def energy_at_interception(f10p7: float, ap: float) -> float:
         physics = PhysicsConfig(
@@ -258,7 +245,7 @@ def test_f10p7_drives_drag_density(config: OrbitalConfig) -> None:
         prop.addEventDetector(
             AltitudeDetector(mission.INTERCEPTION_ALT_M, earth).withHandler(StopOnDecreasing())
         )
-        state = prop.propagate(_abs_date(config.epoch).shiftedBy(_period(config)))
+        state = prop.propagate(to_absolute_date(config.epoch).shiftedBy(_period(config)))
         pv = state.getPVCoordinates()
         r = float(pv.getPosition().getNorm())
         v = float(pv.getVelocity().getNorm())
@@ -275,7 +262,7 @@ def test_eclipse_detector_runs_full_period(config: OrbitalConfig) -> None:
     up (entries and exits) over a closed period.
     """
     sun = CelestialBodyFactory.getSun()
-    earth = _earth()
+    earth = earth_model()
     prop = build_propagator(config, presets.j2_third_body_srp())
     logger = EventsLogger()
     prop.addEventDetector(
@@ -283,7 +270,7 @@ def test_eclipse_detector_runs_full_period(config: OrbitalConfig) -> None:
             EclipseDetector(sun, SUN_RADIUS_M, earth).withHandler(ContinueOnEvent())
         )
     )
-    epoch = _abs_date(config.epoch)
+    epoch = to_absolute_date(config.epoch)
     period = _period(config)
     final = prop.propagate(epoch.shiftedBy(period))
 
