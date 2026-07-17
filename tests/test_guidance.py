@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from puffsat_sim.guidance import thrust_command, zem_acceleration
+from puffsat_sim.terminal import FeedforwardPlan
 
 
 class TestPlateFrameMiss:
@@ -631,3 +632,163 @@ class TestThrustCommand:
         )
 
         assert thrust_n == pytest.approx(0.01)
+
+
+class TestHandoffLateralOffset:
+    """Relocated from runs/guidance.py (2026-07-17 deepening): pure RTN-basis math that was
+    stranded behind a JVM-only interface (took an Orekit ``pv``) for no reason — it only ever
+    used it to extract plain position/velocity."""
+
+    def test_offset_is_exactly_perpendicular_to_velocity(self) -> None:
+        from puffsat_sim.guidance import handoff_lateral_offset
+
+        position = (6_800_000.0, 1_200_000.0, 300_000.0)
+        velocity = (-1_100.0, 3_700.0, 10_050.0)
+
+        off = handoff_lateral_offset(position, velocity, (141.0, -66.0))
+
+        dot = off[0] * velocity[0] + off[1] * velocity[1] + off[2] * velocity[2]
+        assert dot == pytest.approx(0.0, abs=1e-6)
+
+    def test_offset_magnitude_is_the_hypotenuse_of_the_two_axes(self) -> None:
+        from puffsat_sim.guidance import handoff_lateral_offset
+
+        position = (6_800_000.0, 1_200_000.0, 300_000.0)
+        velocity = (-1_100.0, 3_700.0, 10_050.0)
+        a, b = 141.0, -66.0
+
+        off = handoff_lateral_offset(position, velocity, (a, b))
+
+        norm = (off[0] ** 2 + off[1] ** 2 + off[2] ** 2) ** 0.5
+        assert norm == pytest.approx((a**2 + b**2) ** 0.5)
+
+    def test_a_axis_is_orbit_normal_cross_velocity_at_a_simple_state(self) -> None:
+        """A radial/tangential state makes the RTN basis axis-aligned, so the decomposition
+        is checkable by hand: N = +z, l̂ = N×v̂ = -x̂."""
+        from puffsat_sim.guidance import handoff_lateral_offset
+
+        position = (7_000_000.0, 0.0, 0.0)
+        velocity = (0.0, 7_500.0, 0.0)
+
+        off = handoff_lateral_offset(position, velocity, (100.0, 50.0))
+
+        assert off == pytest.approx((-100.0, 0.0, 50.0))
+
+    def test_zero_offset_is_the_zero_vector(self) -> None:
+        from puffsat_sim.guidance import handoff_lateral_offset
+
+        off = handoff_lateral_offset((7_000_000.0, 0.0, 0.0), (0.0, 7_500.0, 0.0), (0.0, 0.0))
+
+        assert off == pytest.approx((0.0, 0.0, 0.0))
+
+
+class TestMeasurementForTick:
+    """Relocated from runs/guidance.py: the per-tick LOS/noise/σ composition, previously
+    inlined once in the JVM loop with no direct test."""
+
+    def test_no_grade_returns_truth_position_and_zero_sigma(self) -> None:
+        from puffsat_sim.guidance import measurement_for_tick
+
+        position = (1.0, 2.0, 3.0)
+        measured, sigma_m = measurement_for_tick(
+            position, target_position_m=(0.0, 0.0, 0.0), grade=None, noise=None, dt_s=1.0
+        )
+
+        assert measured == position
+        assert sigma_m == 0.0
+
+    def test_grade_without_a_noise_process_also_reads_truth(self) -> None:
+        """A declared grade with no ``rng`` (no ``NavNoiseProcess`` constructed by the caller)
+        keeps the noiseless convention rather than raising."""
+        from puffsat_sim.guidance import TrackerGrade, measurement_for_tick
+
+        position = (1.0, 2.0, 3.0)
+        measured, sigma_m = measurement_for_tick(
+            position,
+            target_position_m=(0.0, 0.0, 0.0),
+            grade=TrackerGrade(sigma_theta_rad=10e-6, sigma_range_m=1.0),
+            noise=None,
+            dt_s=1.0,
+        )
+
+        assert measured == position
+        assert sigma_m == 0.0
+
+    def test_angle_grade_sigma_is_theta_times_true_los_range(self) -> None:
+        from puffsat_sim.guidance import NavNoiseProcess, TrackerGrade, measurement_for_tick
+
+        position = (0.0, 0.0, 0.0)
+        target = (10_000.0, 0.0, 0.0)
+        grade = TrackerGrade(sigma_theta_rad=10e-6, sigma_range_m=1.0)
+        noise = NavNoiseProcess(grade, np.random.default_rng(0))
+
+        measured, sigma_m = measurement_for_tick(position, target, grade, noise, dt_s=1.0)
+
+        assert sigma_m == pytest.approx(10e-6 * 10_000.0)
+        assert measured != position  # the correlated draw perturbs the truth position
+
+    def test_constant_grade_sigma_is_range_independent(self) -> None:
+        from puffsat_sim.guidance import NavNoiseProcess, TrackerGrade, measurement_for_tick
+
+        grade = TrackerGrade(sigma_theta_rad=None, sigma_range_m=2.5)
+        noise = NavNoiseProcess(grade, np.random.default_rng(0))
+
+        _, sigma_m = measurement_for_tick(
+            (0.0, 0.0, 0.0), (10_000.0, 0.0, 0.0), grade, noise, dt_s=1.0
+        )
+
+        assert sigma_m == 2.5
+
+
+class TestFeedforwardAccelAt:
+    """Relocated from runs/guidance.py: the ZOH command lookup, previously untestable without
+    booting the JVM despite touching no Orekit type."""
+
+    @staticmethod
+    def _plan() -> FeedforwardPlan:
+        from puffsat_sim.terminal import ThrustCommand
+
+        return FeedforwardPlan(
+            commands=(
+                ThrustCommand(
+                    start_s=0.0, duration_s=10.0, thrust_n=1.0, direction=(1.0, 0.0, 0.0)
+                ),
+                ThrustCommand(
+                    start_s=10.0, duration_s=10.0, thrust_n=2.0, direction=(0.0, 1.0, 0.0)
+                ),
+            ),
+            dv_m_s=0.0,
+            mass_kg=25.0,
+            saturated=False,
+            peak_slew_rate_deg_s=0.0,
+        )
+
+    def test_before_the_first_command_reads_zero(self) -> None:
+        from puffsat_sim.guidance import feedforward_accel_at
+
+        accel = feedforward_accel_at(self._plan(), np.array([0.0, 10.0]), t_s=-1.0)
+
+        assert accel == (0.0, 0.0, 0.0)
+
+    def test_inside_the_first_window_reads_that_command(self) -> None:
+        from puffsat_sim.guidance import feedforward_accel_at
+
+        accel = feedforward_accel_at(self._plan(), np.array([0.0, 10.0]), t_s=5.0)
+
+        assert accel == pytest.approx((1.0 / 25.0, 0.0, 0.0))
+
+    def test_exactly_on_a_command_boundary_reads_the_new_command(self) -> None:
+        """``searchsorted(..., side="right")`` puts a tick exactly on a start time inside the
+        new command, not the old one — the boundary this function exists to get right."""
+        from puffsat_sim.guidance import feedforward_accel_at
+
+        accel = feedforward_accel_at(self._plan(), np.array([0.0, 10.0]), t_s=10.0)
+
+        assert accel == pytest.approx((0.0, 2.0 / 25.0, 0.0))
+
+    def test_at_or_after_the_last_command_ends_reads_zero(self) -> None:
+        from puffsat_sim.guidance import feedforward_accel_at
+
+        accel = feedforward_accel_at(self._plan(), np.array([0.0, 10.0]), t_s=20.0)
+
+        assert accel == (0.0, 0.0, 0.0)

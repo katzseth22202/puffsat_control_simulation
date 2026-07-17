@@ -37,7 +37,7 @@ from puffsat_sim.descent import (
     to_absolute_date,
     vec3,
 )
-from puffsat_sim.dispersion import Vec3, rtn_basis
+from puffsat_sim.dispersion import Vec3
 from puffsat_sim.guidance import (
     ZEM_GAIN,
     GuidanceCell,
@@ -46,7 +46,10 @@ from puffsat_sim.guidance import (
     NavNoiseProcess,
     TerminalGuidanceFinding,
     TrackerGrade,
+    feedforward_accel_at,
     format_terminal_guidance,
+    handoff_lateral_offset,
+    measurement_for_tick,
     plate_frame_miss,
     predicted_zem,
     terminal_tick,
@@ -65,7 +68,7 @@ from puffsat_sim.propagator import (
 )
 from puffsat_sim.runs.anti_drag import PUFFSAT_WET_MASS_KG, sample_drag_window
 from puffsat_sim.runs.terminal import TERMINAL_FIXED_STEP_S, physics_without_drag
-from puffsat_sim.terminal import FeedforwardPlan, ThrustCommand, executed_plan, plan_feedforward
+from puffsat_sim.terminal import ThrustCommand, executed_plan, plan_feedforward
 
 
 @dataclass(frozen=True)
@@ -142,35 +145,6 @@ def build_guidance_context(
     )
 
 
-def _feedforward_accel(plan: FeedforwardPlan, starts_s: np.ndarray, t_s: float) -> Vec3:
-    """The anti-drag feedforward acceleration commanded at time ``t_s`` (zero outside)."""
-    idx = int(np.searchsorted(starts_s, t_s, side="right")) - 1
-    if idx < 0:
-        return (0.0, 0.0, 0.0)
-    cmd = plan.commands[idx]
-    if t_s >= cmd.start_s + cmd.duration_s:
-        return (0.0, 0.0, 0.0)
-    accel = cmd.thrust_n / plan.mass_kg
-    return (accel * cmd.direction[0], accel * cmd.direction[1], accel * cmd.direction[2])
-
-
-def _handoff_lateral_offset(pv: Any, entry_offset_lateral_m: tuple[float, float]) -> Vec3:
-    """A 2-D lateral hand-off displacement in the ⊥v plane: orbit-normal N + in-plane ⊥v.
-
-    Both axes are exactly ⊥ velocity (N by construction; ``N×v̂`` in the orbit plane), so the
-    funnel-entry error stays a pure lateral miss — the C3b scalar normal offset is the
-    ``(0, b)`` case, the D1.1 train entry is the full 2-D draw.
-    """
-    n_hat = np.array(rtn_basis(vec3(pv.getPosition()), vec3(pv.getVelocity()))[2], dtype=np.float64)
-    v_hat = np.array(vec3(pv.getVelocity()), dtype=np.float64)
-    v_hat /= np.linalg.norm(v_hat)
-    l_hat = np.cross(n_hat, v_hat)
-    l_hat /= np.linalg.norm(l_hat)
-    a, b = entry_offset_lateral_m
-    off = a * l_hat + b * n_hat
-    return (float(off[0]), float(off[1]), float(off[2]))
-
-
 def run_guidance(
     ctx: GuidanceContext,
     entry_offset_m: float = 0.0,
@@ -196,7 +170,7 @@ def run_guidance(
     lateral = (
         entry_offset_lateral_m if entry_offset_lateral_m is not None else (0.0, entry_offset_m)
     )
-    off = _handoff_lateral_offset(pv, lateral)
+    off = handoff_lateral_offset(vec3(pv.getPosition()), vec3(pv.getVelocity()), lateral)
     orbit = CartesianOrbit(
         TimeStampedPVCoordinates(
             ctx.handoff.getDate(),
@@ -229,28 +203,16 @@ def run_guidance(
         state_pv = state.getPVCoordinates()
         pos = vec3(state_pv.getPosition())
         vel = vec3(state_pv.getVelocity())
-        measured = pos
-        sigma_m = 0.0
-        if noise is not None and grade is not None:
-            los = (
-                ctx.target_position_m[0] - pos[0],
-                ctx.target_position_m[1] - pos[1],
-                ctx.target_position_m[2] - pos[2],
-            )
-            err = noise.sample(los, dt_s=control_period_s)
-            measured = (pos[0] + err[0], pos[1] + err[1], pos[2] + err[2])
-            sigma_m = (
-                grade.sigma_theta_rad * math.hypot(*los)
-                if grade.sigma_theta_rad is not None
-                else grade.sigma_range_m
-            )
+        measured, sigma_m = measurement_for_tick(
+            pos, ctx.target_position_m, grade, noise, control_period_s
+        )
         onboard = np.array([*measured, *vel], dtype=np.float64)
         zem = predicted_zem(onboard, ctx.target_position_m, t_go)
         tick = terminal_tick(
             zem,
             knowledge_sigma_m=sigma_m,
             t_go_s=t_go,
-            feedforward_m_s2=_feedforward_accel(ff_plan, ff_starts, t),
+            feedforward_m_s2=feedforward_accel_at(ff_plan, ff_starts, t),
             attitude_dir=attitude_dir,
             control_period_s=control_period_s,
             mass_kg=PUFFSAT_WET_MASS_KG,

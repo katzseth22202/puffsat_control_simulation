@@ -8,6 +8,7 @@ JVM-side in :mod:`puffsat_sim.runs.guidance`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -15,7 +16,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from puffsat_sim.anti_drag import PEAK_SLEW_LIMIT_DEG_S, PEAK_THRUST_LIMIT_N, THRUST_FLOOR_N
-from puffsat_sim.dispersion import Vec3
+from puffsat_sim.dispersion import Vec3, rtn_basis
 from puffsat_sim.estimation import two_body_j2_flow
 from puffsat_sim.propellant import propellant_curve
 from puffsat_sim.terminal import FeedforwardPlan
@@ -49,6 +50,25 @@ def _perp_basis(unit: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray
     e1 = np.cross(unit, seed)
     e1 /= np.linalg.norm(e1)
     return e1, np.cross(unit, e1)
+
+
+def handoff_lateral_offset(
+    position_m: Vec3, velocity_m_s: Vec3, entry_offset_lateral_m: tuple[float, float]
+) -> Vec3:
+    """A 2-D lateral hand-off displacement in the ⊥v plane: orbit-normal N + in-plane ⊥v.
+
+    Both axes are exactly ⊥ velocity (N by construction; ``N×v̂`` in the orbit plane), so the
+    funnel-entry error stays a pure lateral miss — the C3b scalar normal offset is the
+    ``(0, b)`` case, the D1.1 train entry is the full 2-D draw.
+    """
+    n_hat = np.array(rtn_basis(position_m, velocity_m_s)[2], dtype=np.float64)
+    v_hat = np.array(velocity_m_s, dtype=np.float64)
+    v_hat /= np.linalg.norm(v_hat)
+    l_hat = np.cross(n_hat, v_hat)
+    l_hat /= np.linalg.norm(l_hat)
+    a, b = entry_offset_lateral_m
+    off = a * l_hat + b * n_hat
+    return (float(off[0]), float(off[1]), float(off[2]))
 
 
 def position_noise(grade: TrackerGrade, rng: np.random.Generator, los_m: Vec3) -> Vec3:
@@ -112,6 +132,37 @@ class NavNoiseProcess:
             + sigma_lat * self._g[2] * e2
         )
         return (float(noise[0]), float(noise[1]), float(noise[2]))
+
+
+def measurement_for_tick(
+    position_m: Vec3,
+    target_position_m: Vec3,
+    grade: TrackerGrade | None,
+    noise: NavNoiseProcess | None,
+    dt_s: float,
+) -> tuple[Vec3, float]:
+    """The measured position and knowledge σ for one control tick's LOS to the target.
+
+    Truth (noiseless) convention: ``grade`` or ``noise`` unset (imperfect knowledge not in
+    effect, or no rng supplied) returns the true position and zero knowledge σ.  Otherwise
+    draws the correlated nav error (:meth:`NavNoiseProcess.sample`) along the true LOS and
+    reads the tick's σ off the grade at that range.
+    """
+    if noise is None or grade is None:
+        return position_m, 0.0
+    los = (
+        target_position_m[0] - position_m[0],
+        target_position_m[1] - position_m[1],
+        target_position_m[2] - position_m[2],
+    )
+    err = noise.sample(los, dt_s=dt_s)
+    measured = (position_m[0] + err[0], position_m[1] + err[1], position_m[2] + err[2])
+    sigma_m = (
+        grade.sigma_theta_rad * math.hypot(*los)
+        if grade.sigma_theta_rad is not None
+        else grade.sigma_range_m
+    )
+    return measured, sigma_m
 
 
 def predicted_zem(state_eme: NDArray[np.float64], target_position_m: Vec3, t_go_s: float) -> Vec3:
@@ -192,6 +243,22 @@ class TickCommand:
     attitude_dir: Vec3 | None
     fire: bool
     saturated: bool
+
+
+def feedforward_accel_at(plan: FeedforwardPlan, starts_s: NDArray[np.float64], t_s: float) -> Vec3:
+    """The anti-drag feedforward acceleration commanded at time ``t_s`` (zero outside).
+
+    ``starts_s`` is ``plan.commands``' start times, precomputed once by the caller (a
+    fixed array across the whole descent) rather than rebuilt every tick.
+    """
+    idx = int(np.searchsorted(starts_s, t_s, side="right")) - 1
+    if idx < 0:
+        return (0.0, 0.0, 0.0)
+    cmd = plan.commands[idx]
+    if t_s >= cmd.start_s + cmd.duration_s:
+        return (0.0, 0.0, 0.0)
+    accel = cmd.thrust_n / plan.mass_kg
+    return (accel * cmd.direction[0], accel * cmd.direction[1], accel * cmd.direction[2])
 
 
 def terminal_tick(
