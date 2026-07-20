@@ -18,7 +18,8 @@ __pycache__/
 .DS_Store
 
 # Claude Code
-.claude/
+.claude/skills/
+.claude/settings.local.json
 
 #todo location
 todos/
