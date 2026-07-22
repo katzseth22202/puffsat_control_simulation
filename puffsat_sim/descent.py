@@ -128,7 +128,10 @@ def descend(
     earth: Any,
     maneuver: Any = None,
 ) -> Crossing:
-    """Regime-switched descent to the 200 km crossing: coast (600 s) → 800 km → terminal (30 s).
+    """Regime-switched descent to the 200 km crossing: coast → 800 km hand-off → terminal.
+
+    The 600 s / 30 s are integrator max *step* caps, not leg durations — the flown 800 → 200 km
+    terminal leg is ~245 s on the reference orbit.
 
     ``maneuver`` (B1) is an optional finite burn attached to the coast leg — the apogee
     correction fires entirely above the hand-off, so the terminal leg is unaffected.

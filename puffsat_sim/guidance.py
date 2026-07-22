@@ -434,9 +434,12 @@ def reflect_radial_velocity(position_m: Vec3, velocity_m_s: Vec3) -> Vec3:
 
     Models an *ascending* target as the mirror of a descending one: same speed and same
     horizontal motion, opposite radial sign.  A clean single-parameter stand-in for a real
-    launch-rocket trajectory at the interception — deliberately fast, so the closing speed
-    ``|v − v_target|`` and hence the plate-frame miss are on the pessimistic side until the
-    actual target trajectory is supplied.
+    launch-rocket trajectory at the interception.
+
+    It is **not** a pessimistic corner (ADR 0023): interception is nearly horizontal, so a
+    *faster* co-directional target closes more gently.  The mirror is the minimum-closing
+    member of the family ``v_target = s·v_mirror``; the maximum is ``s = 0``, which is exactly
+    the fixed-point frame the committed numbers already use.
     """
     p = np.asarray(position_m, dtype=np.float64)
     v = np.asarray(velocity_m_s, dtype=np.float64)

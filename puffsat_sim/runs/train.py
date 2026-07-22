@@ -21,7 +21,7 @@ import puffsat_sim.jvm  # noqa: F401  boots the JVM before any org.orekit import
 
 from puffsat_sim import mission
 from puffsat_sim.config import OrbitalConfig
-from puffsat_sim.guidance import TrackerGrade
+from puffsat_sim.guidance import PlateMiss, TrackerGrade
 from puffsat_sim.montecarlo import physics_from_inputs
 from puffsat_sim.runs.guidance import GuidanceContext, build_guidance_context, run_guidance
 from puffsat_sim.tracker_fusion import (
@@ -33,11 +33,14 @@ from puffsat_sim.tracker_fusion import (
     tracker_fusion_finding,
 )
 from puffsat_sim.train import (
+    PooledCaptureFinding,
     TrainDispersionSpec,
     TrainEnsembleFinding,
+    format_pooled_capture,
     format_train_ensemble,
     sample_train,
     sample_train_entry_offsets,
+    summarize_pooled_capture,
     summarize_train_ensemble,
 )
 
@@ -161,6 +164,75 @@ def fused_train_rerun_report(
             )
         )
     header = "ADR 0019 — D1.1 re-run at the fused terminal-nav grade (C3b noise re-keyed)"
+    return header + "\n\n" + "\n\n".join(blocks)
+
+
+def run_pooled_train_capture(
+    n_trains: int = SMOKE_N_TRAINS,
+    spec: TrainDispersionSpec | None = None,
+    master_seed: int = D1_MASTER_SEED,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    ctx: GuidanceContext | None = None,
+    trackers: Sequence[Tracker] | None = None,
+) -> PooledCaptureFinding:
+    """Fly ``n_trains`` independent trains and pool every unit into one counted capture figure.
+
+    The escape tail is driven by the *shared* (per-train) entry leg, so a single train's units
+    cannot resolve it however many there are — this pools across trains (ADR 0018, 2026-07-22).
+    Pass ``replace(spec, sigma_entry_lateral_shared_m=0.0)`` to fly the **retarget-credited**
+    convention, in which the ±2 km centroid retarget absorbs that shared leg (ADR 0016).
+    """
+    spec = spec if spec is not None else TrainDispersionSpec(n_units=SMOKE_N_UNITS)
+    ctx = ctx if ctx is not None else build_guidance_context(orbital_config)
+    grade = (
+        fused_tracker_grade(trackers, sigma_range_m=spec.tracker_sigma_range_m)
+        if trackers is not None
+        else TrackerGrade(
+            sigma_theta_rad=spec.tracker_sigma_theta_rad, sigma_range_m=spec.tracker_sigma_range_m
+        )
+    )
+    misses: list[PlateMiss] = []
+    entries: list[tuple[float, float]] = []
+    for train in range(1, n_trains + 1):
+        inputs = sample_train(master_seed, spec, train)
+        train_entries = sample_train_entry_offsets(master_seed, spec, train)
+        entries.extend(train_entries)
+        misses.extend(
+            run_guidance(
+                ctx,
+                entry_offset_lateral_m=train_entries[j],
+                grade=grade,
+                control_period_s=spec.control_period_s,
+                rng=np.random.default_rng((master_seed, train, j)),
+                truth_physics=physics_from_inputs(inputs[j]),
+            ).miss
+            for j in range(spec.n_units)
+        )
+    return summarize_pooled_capture(misses, entries, n_trains)
+
+
+def pooled_train_capture_report(
+    n_trains: int = SMOKE_N_TRAINS,
+    n_units: int = SMOKE_N_UNITS,
+    master_seed: int = D1_MASTER_SEED,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+) -> str:
+    """Both entry conventions at the committed 5-array grade, side by side (ADR 0018)."""
+    as_flown = TrainDispersionSpec(n_units=n_units)
+    retargeted = replace(as_flown, sigma_entry_lateral_shared_m=0.0)
+    ctx = build_guidance_context(orbital_config)
+    trackers = target_array_only()
+    blocks = [
+        f"[{label}]\n"
+        + format_pooled_capture(
+            run_pooled_train_capture(n_trains, spec, master_seed, ctx=ctx, trackers=trackers)
+        )
+        for label, spec in (
+            ("as flown — funnel nulls shared ⊕ per-unit entry (conservative)", as_flown),
+            ("retarget credited — funnel nulls per-unit entry only (ADR 0016 spec)", retargeted),
+        )
+    ]
+    header = "ADR 0018 — pooled per-unit capture at the 5-array fused grade, both entry conventions"
     return header + "\n\n" + "\n\n".join(blocks)
 
 

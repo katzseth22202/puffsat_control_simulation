@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pytest
 
 from puffsat_sim.guidance import CAPTURE_SIGMA_MAX_M, PLATE_RADIUS_M, PlateMiss
 from puffsat_sim.terminal import FeedforwardPlan
@@ -12,12 +13,15 @@ from puffsat_sim.train import (
     TrainCaptureStats,
     TrainDispersionSpec,
     TrainEnsembleFinding,
+    binomial_lower_bound_95,
+    format_pooled_capture,
     format_train_capture,
     format_train_ensemble,
     replay_train_entry_offset,
     replay_train_unit,
     sample_train,
     sample_train_entry_offsets,
+    summarize_pooled_capture,
     summarize_train_capture,
     summarize_train_ensemble,
 )
@@ -283,3 +287,56 @@ def test_ensemble_format_reports_capture_propellant_and_perigee() -> None:
     assert "capture" in text.lower()
     assert "propellant" in text.lower()
     assert "perigee" in text.lower()
+
+
+def test_binomial_lower_bound_95_zero_failures_matches_rule_of_three() -> None:
+    assert binomial_lower_bound_95(320, 320) == pytest.approx(0.05 ** (1 / 320))
+    assert binomial_lower_bound_95(192, 192) == pytest.approx(0.9845, abs=1e-4)
+
+
+def test_binomial_lower_bound_95_is_below_the_point_estimate() -> None:
+    bound = binomial_lower_bound_95(317, 320)
+    assert bound < 317 / 320
+    assert bound == pytest.approx(0.9759, abs=1e-3)
+
+
+def test_pooled_capture_counts_escapes_and_attributes_them_to_entry() -> None:
+    misses = [
+        PlateMiss(lateral_m=(0.5, 0.0), toa_error_s=0.0),
+        PlateMiss(lateral_m=(0.0, 0.5), toa_error_s=0.0),
+        PlateMiss(lateral_m=(70.0, 0.0), toa_error_s=0.0),
+    ]
+    entries = [(100.0, 0.0), (0.0, 120.0), (520.0, 0.0)]
+    finding = summarize_pooled_capture(misses, entries, n_trains=3)
+
+    assert finding.escapes == 1
+    assert finding.capture == pytest.approx(2 / 3)
+    assert finding.entry_escape_threshold_m == pytest.approx(520.0)
+    assert finding.entry_limited
+    assert finding.core_sigma_m == pytest.approx(0.5 / math.sqrt(2))
+    assert not finding.meets_bound
+
+
+def test_pooled_capture_core_sigma_excludes_escapes() -> None:
+    core = [PlateMiss(lateral_m=(1.0, 0.0), toa_error_s=0.0)] * 4
+    escape = [PlateMiss(lateral_m=(80.0, 0.0), toa_error_s=0.0)]
+    entries = [(10.0, 0.0)] * 4 + [(600.0, 0.0)]
+    finding = summarize_pooled_capture(core + escape, entries, n_trains=2)
+
+    assert finding.core_sigma_m == pytest.approx(1.0 / math.sqrt(2))
+
+
+def test_pooled_capture_rejects_unpaired_inputs() -> None:
+    miss = PlateMiss(lateral_m=(0.0, 0.0), toa_error_s=0.0)
+    with pytest.raises(ValueError, match="paired"):
+        summarize_pooled_capture([miss], [], n_trains=1)
+
+
+def test_format_pooled_capture_states_whether_the_bound_is_established() -> None:
+    misses = [PlateMiss(lateral_m=(0.4, 0.0), toa_error_s=0.0)] * 320
+    entries = [(100.0, 0.0)] * 320
+    text = format_pooled_capture(summarize_pooled_capture(misses, entries, 8))
+
+    assert "0 escapes / 320 units" in text
+    assert "establishes ≥99%" in text
+    assert "entry-limited: yes" in text

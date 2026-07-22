@@ -412,3 +412,110 @@ def format_train_ensemble(finding: TrainEnsembleFinding) -> str:
         f" [min {finding.perigee_min_m / 1e3:.1f}, max {finding.perigee_max_m / 1e3:.1f}].",
     ]
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class PooledCaptureFinding:
+    """Per-unit capture pooled over several *trains* — the statistically-honest D1 headline.
+
+    A single train shares one common-mode draw, so pooling units *within* one train samples the
+    per-unit legs only; the escape tail is driven by the shared entry leg, which needs several
+    trains to sample. ``lower_bound_95`` is the one-sided Clopper–Pearson bound: the point
+    estimate is what the counting yields, this is what it *establishes* (ADR 0018, 2026-07-22).
+    """
+
+    n_units: int
+    n_trains: int
+    escapes: int
+    entry_escape_threshold_m: float
+    max_entry_m: float
+    core_sigma_m: float
+    plate_radius_m: float = PLATE_RADIUS_M
+
+    @property
+    def capture(self) -> float:
+        return 1.0 - self.escapes / self.n_units
+
+    @property
+    def lower_bound_95(self) -> float:
+        return binomial_lower_bound_95(self.n_units - self.escapes, self.n_units)
+
+    @property
+    def entry_limited(self) -> bool:
+        """Every escape is a hand-off entry past the funnel, not a terminal-noise event."""
+        return self.escapes == 0 or self.max_entry_m >= self.entry_escape_threshold_m
+
+    @property
+    def meets_bound(self) -> bool:
+        """The counting *establishes* ≥99 %, rather than merely estimating it."""
+        return self.lower_bound_95 >= 0.99
+
+
+def binomial_lower_bound_95(successes: int, trials: int, alpha: float = 0.05) -> float:
+    """One-sided Clopper–Pearson lower bound on the success probability."""
+    if trials <= 0:
+        return 0.0
+    if successes >= trials:
+        return float(alpha ** (1.0 / trials))
+    lo, hi = 0.0, 1.0
+    for _ in range(100):
+        mid = 0.5 * (lo + hi)
+        tail = sum(
+            math.comb(trials, i) * mid**i * (1.0 - mid) ** (trials - i)
+            for i in range(successes, trials + 1)
+        )
+        lo, hi = (mid, hi) if tail < alpha else (lo, mid)
+    return lo
+
+
+def summarize_pooled_capture(
+    misses: Sequence[PlateMiss],
+    entries: Sequence[Vec2],
+    n_trains: int,
+    plate_radius_m: float = PLATE_RADIUS_M,
+) -> PooledCaptureFinding:
+    """Reduce a multi-train batch to the counted capture + the escape/entry attribution.
+
+    ``core_sigma_m`` is the per-axis σ of the *captured* arrivals only: the pooled set is bimodal
+    (captured core plus funnel escapes), so a σ over everything is a mixture statistic that must
+    not be read against the ADR 0015 criterion.
+    """
+    if len(misses) != len(entries):
+        raise ValueError("misses and entries must be paired")
+    radii = [math.hypot(*m.lateral_m) for m in misses]
+    entry_mags = [math.hypot(*e) for e in entries]
+    escaped = [mag for r, mag in zip(radii, entry_mags, strict=True) if r > plate_radius_m]
+    captured = [m for m, r in zip(misses, radii, strict=True) if r <= plate_radius_m]
+    sq = sum(m.lateral_m[0] ** 2 + m.lateral_m[1] ** 2 for m in captured)
+    return PooledCaptureFinding(
+        n_units=len(misses),
+        n_trains=n_trains,
+        escapes=len(escaped),
+        entry_escape_threshold_m=min(escaped) if escaped else math.inf,
+        max_entry_m=max(entry_mags) if entry_mags else 0.0,
+        core_sigma_m=math.sqrt(sq / (2.0 * len(captured))) if captured else 0.0,
+        plate_radius_m=plate_radius_m,
+    )
+
+
+def format_pooled_capture(finding: PooledCaptureFinding) -> str:
+    """One-screen pooled-capture report: the point estimate vs the bound it establishes."""
+    threshold = (
+        f"{finding.entry_escape_threshold_m:.0f} m"
+        if math.isfinite(finding.entry_escape_threshold_m)
+        else "n/a"
+    )
+    return "\n".join(
+        [
+            f"  Pooled per-unit capture: {finding.capture * 100:.2f}%"
+            f" ({finding.escapes} escapes / {finding.n_units} units,"
+            f" {finding.n_trains} trains, {finding.plate_radius_m:g} m plate).",
+            f"  One-sided 95% lower bound: {finding.lower_bound_95 * 100:.2f}%"
+            f" — {'establishes' if finding.meets_bound else 'does NOT establish'} ≥99%.",
+            f"  Captured-core σ (per axis): {finding.core_sigma_m:.2f} m"
+            f" — the pooled σ over escapes too would be a mixture statistic, not a Gaussian σ.",
+            f"  Escapes are entry-limited: {'yes' if finding.entry_limited else 'NO'}"
+            f" (lowest escaping entry {threshold}; max entry"
+            f" {finding.max_entry_m:.0f} m).",
+        ]
+    )

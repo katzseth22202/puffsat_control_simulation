@@ -357,6 +357,10 @@ drag, isolating the binding entry×noise tail driver).
   0.58 m, +co-flyer σ 0.21 m) drive the tail far below the 99 % target with margin. **D2 (MPC) is
   not triggered.** The σ-criterion's 2.0× tail optimism is the slice's caution for the marginal
   single-detector grade; the fused architecture absorbs it.
+  > **Amended 2026-07-22** (see the entry-convention finding below): "far below the 99 % target"
+  > holds only under the **retarget-credited** entry convention. **As flown** (shared ⊕ per-unit
+  > entry), a pooled 320-unit batch at the 5-array grade measures **99.06 %, 3 escapes** — still
+  > past 99 % as a point estimate, but not "zero escapes" and not a counted bound.
 - **Remaining D1.x:** the Cr-prior predict/execute mismatch leg; the Φ-Jacobian quasi-Newton
   corrector; nav-Σ-by-node-count → min nodes; MCC-2 scheduling. (Cr/storm IS is a 2nd-order
   extension per D1.1; a larger BF batch tightens the P(capture) lower bound.)
@@ -405,6 +409,71 @@ needed.
   funnel edge. A `runs/tail_capture` entry point over the fused architectures would then mirror
   `runs/train.fused_train_rerun_report`.
 
+## Implementation findings — the entry convention behind the fused headline (2026-07-22)
+
+A review challenge ("zero escapes in N = 192 only bounds capture at 98.45 %; the table
+overstates what the counting establishes") was answered by **flying a larger pooled batch** at
+the committed 5-array grade (1.622 µrad): **8 independent trains × 40 units = 320**, each unit
+carrying its train-sampled coefficients into truth drag and its Φ-composed entry into the funnel.
+The result corrects a committed claim.
+
+**Measured, as flown: 3 escapes / 320 → per-unit capture 99.06 %, one-sided 95 % lower bound
+97.6 %.** Not zero. The earlier "zero escapes in the flown fused batch" was a **train-count
+artefact**: with only one or two shared draws sampled, a large per-train shared entry never
+appeared. Eight draws produced two (|shared| = 273 m and 199 m), and every escape lives in them.
+
+**All three escapes are entry-cliff events, not noise events.** Ranking units by total hand-off
+entry magnitude reproduces the escape set exactly: the three units above ~500 m escaped, a unit at
+487 m was marginally captured, and everything below was captured. Arrival radii are bimodal — a
+captured core at σ ≈ 0.5 m plus outliers at tens of metres — so the *pooled* σ (3.41 m) is a
+mixture statistic, not a Gaussian σ, and must not be read against the 1.65 m criterion.
+
+**The driver is the *shared* entry component — the one the ± 2 km centroid retarget is specified
+to absorb.** `sample_train_entry_offsets` says so in its own docstring ("the shared lateral —
+centroid drift the retarget absorbs — is drawn once; each unit adds an independent per-unit
+lateral — the scatter the funnel must null"), but `run_guidance` flies **shared + per-unit** as
+the offset the funnel must null. Re-flying the two escaping trains with `sigma_entry_lateral_shared_m
+= 0` (the retarget credited) gives **80 / 80, σ 0.58 m, worst miss 1.91 m** — the escapes vanish
+entirely. Per-unit alone could not reach the cliff anyway: 475 m is 4.8σ on the 141 m per-unit
+leg (P ≈ 1e-5) but only 3.3σ on the 144.8 m combined leg (P ≈ 5e-3), which is the ~1 % observed.
+
+**Consequence — the two conventions must be named, because they differ by three orders of
+magnitude:**
+
+| Convention | Entry the funnel must null | Measured (320 units, 8 trains, 5-array grade) | 95 % LB |
+|---|---|---|---|
+| **As flown** (retarget *not* credited) | shared ⊕ per-unit (σ 144.8 m) | **3 escapes → 99.06 %**, core σ 0.53 m | 97.59 % — does **not** establish ≥ 99 % |
+| **Retarget credited** (ADR 0016 as specified) | per-unit only (σ 141 m) | **0 escapes → 100 %**, core σ 0.60 m, max entry 344 m | **99.07 % — establishes ≥ 99 %** |
+
+The 99.999 % figure above is *per-unit-entry-only*: it assumes the retarget. That assumption is
+correct and **is** stated — the closeout below calls the per-unit 141 m "the cliff-relevant
+scatter" and the shared 149 m "common-mode, absorbed by the ± 2 km / ± 5 s retarget". So this is
+**not a doc gap in the ADR; it is an implementation-vs-spec gap**: `run_guidance` never got the
+retarget, so the flown pipeline makes the funnel null a leg the spec says it never sees. Both
+numbers are now labeled by convention, and the downstream `CONCLUSION.md` claim — which quoted
+flown-pipeline evidence ("zero escapes in the flown fused batch") in support of the
+retarget-convention figure — is corrected.
+
+**This does not overturn D1's verdict, and the direction is safe** — the flown pipeline is the
+*conservative* one, and even uncorrected it delivers 99.06 % per-unit at the committed grade with
+the escapes deorbiting by §9 as intended. What changes is the **claim**, and it now cuts both
+ways: the blanket "zero escapes" is withdrawn, but ≥ 99 % is for the first time **statistically
+established by direct counting** — 320 escape-free units clear the 299 a one-sided 95 % LB ≥ 99 %
+requires, giving **LB 99.07 %** under the specified retarget convention. As flown it remains a
+point estimate (99.06 %, LB 97.59 %), which no batch size will fix because the as-flown escape
+rate is genuinely ~1 %.
+
+The measured cliff is sharp and consistent with C3c: the lowest *escaping* entry was **491 m**
+against the 475 m analytic catch radius, and the retarget-credited batch never exceeded 344 m.
+
+**Reproducible** via `runs/train.pooled_train_capture_report` (pools trains at a chosen
+architecture; `replace(spec, sigma_entry_lateral_shared_m=0.0)` selects the retarget convention).
+
+**Follow-on, non-blocking:** decide whether the flown loop should model the retarget explicitly
+(aim-point shift to the train centroid before terminal hand-off) rather than leaving it as an
+uncredited conservatism. That is a modeling decision for the expert review, not a gap in the
+verdict.
+
 ## Implementation findings — D1.x Cr-prior mismatch leg, recorded not coded (2026-06-15)
 
 The other deferred leg of decision 6's brute-force batch A (the corrector-validation above did the
@@ -450,6 +519,10 @@ both entry legs validated against the real corrector, the D1 feasibility gate is
   fused array (≥ ~1.6 µrad) → **99.999 %** (entry/authority-limited; the co-flyer is robustness margin,
   redundant for the number). The binding regime flips at the **knee** (arrival σ ≈ 1.05 m): below it,
   capture is governed by the midcourse entry budget vs the 475 m catch radius, not σ_θ.
+  > **Amended 2026-07-22:** the 99.999 % is on the **retarget-credited** entry convention this
+  > bullet's own budget line specifies (per-unit 141 m is "the cliff-relevant scatter"). The flown
+  > pipeline does not implement the retarget, so *as flown* the 5-array grade measures **99.06 %
+  > (3 escapes / 320)** — see the entry-convention finding above.
 - **Entry budget, both legs validated against the real corrector:** nav per-unit 141 m (the
   cliff-relevant scatter — corrector-validation: Φ-map reproduced, hand-off 2.13× conservative vs the
   crossing proxy); Cr-prior shared 149 m (common-mode, absorbed by the ±2 km / ±5 s retarget; 98 %

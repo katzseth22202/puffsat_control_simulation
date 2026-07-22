@@ -25,7 +25,7 @@ proof. Keeping them separate is the whole point — only the first is a flown re
 
 | Tier | Claim | Status |
 |---|---|---|
-| **1 — Simulated & closed out** | Closed-loop terminal control delivers a PuffSat onto a **5 m pusher plate at the nominal interception point at ≥99% per-unit confidence** under full dispersions (LEO scenario). The target rocket is represented by that fixed interception state, not co-propagated (see caveats). | Closed-loop Monte Carlo; Rung D / D1 closed ([ADR 0018](docs/adr/0018-rung-d-decomposition.md)). |
+| **1 — Simulated & closed out** | Closed-loop terminal control delivers a PuffSat onto a **5 m pusher plate at ≥99% per-unit capture, directly counted** (0 escapes / 320 units over 8 independent trains → one-sided 95% LB **99.07%**) at the committed fused grade under the **implemented** dispersions (LEO scenario). That figure credits the ±2 km centroid retarget the design specifies; the flown loop does not implement it, and *as flown* the same batch gives **99.06% (3 escapes / 320, LB 97.6%)** — see the numbers below, which name both conventions. The target rocket is scored in a relative plate frame against a placeholder trajectory but is still *flown to* as a fixed aim point (see caveats). | Closed-loop Monte Carlo; Rung D / D1 closed ([ADR 0018](docs/adr/0018-rung-d-decomposition.md)). |
 | **2 — Argued / sized, not closed-loop** | A surveyor-anchored, camera-rigid extension drives the per-unit miss to a **metrology-limited ~10 cm plate**. | Analytic architecture argument; deferred follow-on, no ADR ([CONTEXT.md](CONTEXT.md): *Surveyor-anchored centering*). |
 | **3 — Architectural extension sketch** | The same design pattern extends to a **near-Sun / Parker-class** trajectory, swapping star references for artificial beacons. | Paper-side, reversible, **two open sizing numbers, not simulated in this repo** ([CONTEXT.md](CONTEXT.md): *Near-Sun optical nav*). |
 
@@ -114,15 +114,33 @@ flying the real terminal loop through the catch-radius cliff, the significance g
   achievable 3.2 µrad grade is **marginal**, and this is the **directly-flown result**:
   brute-force Monte Carlo (N = 500) gives **P(capture) ≈ 99.2%, arrival σ ≈ 1.51 m**. So the
   **committed architecture is the fused tracker array**: fusion drives the arrival scatter down
-  (5-array → σ ≈ 0.9 m; + co-flyer → σ ≈ 0.3 m), and the flown batch at those grades sees
-  **zero escapes** — consistent with ≥99.9% per-unit, but brute force cannot resolve the tail
-  depth at these sample sizes. The often-quoted **≈99.999%** at the fused grade is an
-  **importance-sampling + catch-radius-analytic *extrapolation* into that tail, not a
-  directly-counted Monte-Carlo result**: the committed `tail_capture` runner defaults to the
-  single-detector grade and reports the brute-force estimate, so the fused-tail figure is
-  **recorded from the analysis, not reproduced by the checked-in pipeline**. The reproducible
-  claims are the single-detector **99.2%** and "**zero escapes in the flown fused batch**";
-  treat 99.999% as a model extrapolation.
+  (5-array → σ ≈ 0.9 m; + co-flyer → σ ≈ 0.3 m).
+- **What the counting establishes at the fused grade — and the entry convention it depends on**
+  (measured 2026-07-22, 8 independent trains × 40 units = **320** at the 5-array 1.62 µrad grade;
+  reproducible via `runs/train.pooled_train_capture_report`). This **supersedes an earlier "zero
+  escapes in N = 192"**, which was a **train-count artefact**: a train shares one common-mode draw,
+  so pooling units *within* a train never samples the shared entry leg. The result splits cleanly:
+
+  | Entry convention | Result | One-sided 95% LB |
+  |---|---|---|
+  | **As flown** — funnel nulls shared ⊕ per-unit entry | 3 escapes / 320 → **99.06%**, core σ 0.53 m | 97.59% — does *not* establish ≥99% |
+  | **Retarget credited** — funnel nulls per-unit entry only | 0 escapes / 320 → **100%**, core σ 0.60 m | **99.07% — establishes ≥99%** |
+
+  The per-train **shared** entry leg (149 m) is *specified* to be absorbed by the ±2 km centroid
+  retarget ([ADR 0016](docs/adr/0016-train-relative-requirement-framing.md)), leaving the funnel only
+  the **per-unit** leg (141 m). The flown loop **does not implement that retarget** — it makes the
+  funnel null both legs — so the as-flown row is the *conservative* one, and the gap is
+  implementation-vs-spec, not a hidden assumption.
+- **All escapes are entry-cliff events, not noise events.** The lowest escaping hand-off entry was
+  **491 m** against the ~475 m analytic catch radius; the retarget-credited batch never exceeded
+  344 m and saw none. Arrivals are therefore **bimodal** — a captured core at σ ≈ 0.5 m plus
+  tens-of-metres outliers — so a pooled σ over the whole set is a mixture statistic and **must not**
+  be read against the 1.65 m criterion.
+- The often-quoted **≈99.999%** is the deep-tail figure on the *retarget-credited* convention, and
+  is additionally an **importance-sampling + catch-radius-analytic extrapolation** — the committed
+  `tail_capture` runner defaults to the single-detector grade, so it is recorded from analysis, not
+  reproduced end-to-end. The directly-counted claims are the single-detector **99.2%**, the as-flown
+  fused **99.06%**, and the retarget-credited fused **≥99% at 95% confidence**.
 - **Propellant** stays under the ~2% claim across the stack (~0.9% typical, ~1.2% worst case
   at Isp 50 s).
 - **ToA** is ≤ ~0.7 ms — two orders inside the 10 ms requirement.
@@ -192,12 +210,18 @@ plausibility argument, not a verified result.
   the historical fixed-point frame is the `v_target = 0` case. For the nominal **mirror-ascending**
   target the closing speed is only ~3 km/s — interception at 200 km sits ~8° from horizontal, so a
   co-moving ascending rocket closes gently — and capture is *unaffected* (the fixed-point result is
-  mildly conservative, not optimistic, for this model). **This is target-model-dependent:** a
-  head-on or high-cross-track launch geometry would raise `|v_rel|` and could erode margin, so the
-  real launch trajectory is a mission-design input still to be supplied. **Still deferred:** a
-  dispersed/powered target (its *position* dispersion is largely nulled by beacon homing; the
-  residual is target *velocity* uncertainty), and wiring the moving frame into the D1.1 train and
-  tail-capture runs (which today use the conservative fixed frame).
+  mildly conservative, not optimistic, for this model). Scaling the mirror velocity sweeps a family
+  of co-directional targets whose closing speed rises monotonically as the target *slows*, and the
+  fixed frame is exactly its `v_target = 0` endpoint — so the committed numbers bound that whole
+  family from the conservative side. **They do not bound geometries outside it:** a head-on or
+  high-cross-track launch would raise `|v_rel|` past the PuffSat speed and could erode margin, so
+  the real launch trajectory is a mission-design input still to be supplied. **Still deferred, and
+  this is the substantive gap:** the loop is *scored* relative but still *flown* to a fixed aim
+  point — no target lead is modeled — so ADR 0023 is a relative-frame sensitivity study, not an
+  end-to-end powered-target simulation. Also deferred: a dispersed/powered target (its *position*
+  dispersion is largely nulled by beacon homing; the residual is target *velocity* uncertainty),
+  and wiring the moving frame into the D1.1 train and tail-capture runs (which today use the
+  fixed frame).
 - **Terminal velocity knowledge is idealized.** The onboard ZEM state receives **exact truth
   velocity**; only position carries σ_θ·R measurement noise, and the hand-off residual is
   displaced in position with nominal velocity. Terminal miss at ~10.8 km/s depends on both
