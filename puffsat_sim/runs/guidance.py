@@ -43,15 +43,20 @@ from puffsat_sim.guidance import (
     GuidanceCell,
     GuidanceRun,
     GuidanceSweepSpec,
+    MovingTargetFinding,
     NavNoiseProcess,
     TerminalGuidanceFinding,
     TrackerGrade,
+    capture_fraction,
     feedforward_accel_at,
+    format_moving_target,
     format_terminal_guidance,
     handoff_lateral_offset,
+    lateral_scatter_sigma_m,
     measurement_for_tick,
     plate_frame_miss,
     predicted_zem,
+    reflect_radial_velocity,
     terminal_tick,
 )
 from puffsat_sim.montecarlo import (
@@ -85,14 +90,24 @@ class GuidanceContext:
     target_position_m: Vec3
     target_toa_s: float
     target_speed_m_s: float
+    target_crossing_velocity_m_s: Vec3  # nominal drag-free crossing velocity (the frame ref)
+    target_velocity_m_s: Vec3  # the target's own velocity for scoring (0 = fixed point)
     ff_times_s: tuple[float, ...]
     ff_accels_m_s2: tuple[Vec3, ...]
 
 
 def build_guidance_context(
     orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    target_velocity_m_s: Vec3 | None = None,
 ) -> GuidanceContext:
-    """Coast to the 800 km hand-off once and fix the aim point + nominal drag profile."""
+    """Coast to the 800 km hand-off once and fix the aim point + nominal drag profile.
+
+    ``target_velocity_m_s`` is the interception-frame velocity of the target rocket's plate.
+    ``None`` (the default) keeps the historical **fixed-point** target (v_target = 0), so the
+    C3b sweep and every committed number are byte-identical; a non-zero value (e.g.
+    :func:`puffsat_sim.guidance.reflect_radial_velocity` of the crossing velocity) makes the
+    plate frame relative to a *moving* target (ADR 0023).
+    """
     physics = presets.full_force()
     earth = earth_model()
     epoch = to_absolute_date(orbital_config.epoch)
@@ -140,6 +155,10 @@ def build_guidance_context(
         target_position_m=target.position_m,
         target_toa_s=target.toa_s,
         target_speed_m_s=math.hypot(*target.velocity_m_s),
+        target_crossing_velocity_m_s=target.velocity_m_s,
+        target_velocity_m_s=target_velocity_m_s
+        if target_velocity_m_s is not None
+        else (0.0, 0.0, 0.0),
         ff_times_s=tuple(times),
         ff_accels_m_s2=tuple(accels),
     )
@@ -251,10 +270,14 @@ def run_guidance(
             crossing.toa_s,
             ctx.target_position_m,
             ctx.target_toa_s,
+            ctx.target_velocity_m_s,
         ),
         plan=executed_plan(tuple(commands), PUFFSAT_WET_MASS_KG, saturated=saturated_ticks > 0),
         saturated_fraction=saturated_ticks / ticks if ticks else 0.0,
         perigee_alt_m=crossing.perigee_alt_m,
+        crossing_position_m=crossing.position_m,
+        crossing_velocity_m_s=crossing.velocity_m_s,
+        crossing_toa_s=crossing.toa_s,
     )
 
 
@@ -396,3 +419,70 @@ def terminal_guidance_report(
 ) -> str:
     """Run the C3b sweep and format the one-screen report."""
     return format_terminal_guidance(run_terminal_guidance(spec, orbital_config))
+
+
+def run_moving_target_study(
+    spec: GuidanceSweepSpec | None = None,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    n_runs: int = 64,
+) -> MovingTargetFinding:
+    """Score one flown trajectory set against a fixed vs a mirror-ascending target (ADR 0023).
+
+    The same tracker-noise trajectories are read off in both plate frames — fixed
+    (v_target = 0, the committed C3b/D1.1 convention) and moving (the target closes at
+    :func:`reflect_radial_velocity` of the crossing velocity) — so the σ_lateral / capture
+    delta is purely the relative-velocity geometry, not a different flight.
+    """
+    spec = spec if spec is not None else GuidanceSweepSpec()
+    ctx = build_guidance_context(orbital_config)
+    grade = TrackerGrade(
+        sigma_theta_rad=spec.nominal_sigma_theta_rad, sigma_range_m=spec.sigma_range_m
+    )
+    runs = tuple(
+        run_guidance(
+            ctx,
+            grade=grade,
+            control_period_s=spec.control_period_s,
+            rng=np.random.default_rng((spec.master_seed, 900, i)),
+            gain=spec.gain,
+        )
+        for i in range(n_runs)
+    )
+
+    # The ascending target's velocity mirrors the nominal descending crossing across the local
+    # horizontal; the closing speed is |v_nominal − v_ascending| at the meet point.
+    v_nominal = ctx.target_crossing_velocity_m_s
+    v_target = reflect_radial_velocity(ctx.target_position_m, v_nominal)
+    closing = math.hypot(
+        v_nominal[0] - v_target[0], v_nominal[1] - v_target[1], v_nominal[2] - v_target[2]
+    )
+    fixed = tuple(r.miss for r in runs)
+    moving = tuple(
+        plate_frame_miss(
+            r.crossing_position_m,
+            r.crossing_velocity_m_s,
+            r.crossing_toa_s,
+            ctx.target_position_m,
+            ctx.target_toa_s,
+            v_target,
+        )
+        for r in runs
+    )
+    return MovingTargetFinding(
+        puffsat_speed_m_s=ctx.target_speed_m_s,
+        closing_speed_m_s=closing,
+        fixed_sigma_lateral_m=lateral_scatter_sigma_m(fixed),
+        moving_sigma_lateral_m=lateral_scatter_sigma_m(moving),
+        fixed_capture=capture_fraction(fixed),
+        moving_capture=capture_fraction(moving),
+        n_runs=n_runs,
+    )
+
+
+def moving_target_report(
+    spec: GuidanceSweepSpec | None = None,
+    orbital_config: OrbitalConfig = mission.NOMINAL_CONFIG,
+    n_runs: int = 64,
+) -> str:
+    """Run the ADR 0023 moving-target study and format the fixed-vs-moving comparison."""
+    return format_moving_target(run_moving_target_study(spec, orbital_config, n_runs))

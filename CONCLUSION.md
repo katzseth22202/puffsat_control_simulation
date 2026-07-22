@@ -186,14 +186,18 @@ plausibility argument, not a verified result.
   Monte Carlo takes as inputs. The σ_θ tracker budget, apogee-constellation GDOP, and torque
   margin convert those inputs toward derived hardware requirements
   ([ADR 0018](docs/adr/0018-rung-d-decomposition.md)).
-- **The target rocket is modeled as a fixed interception state, not co-propagated.** The
-  terminal loop homes on the PuffSat's own nominal drag-free 200 km crossing, which stands in for
-  the rocket's plate; the rocket is not integrated as a second body. Consequently the
-  **closing-velocity geometry** (which sets the plate normal), the **target's own state
-  dispersion**, and **target motion during the ToA window** are absorbed into that fixed point
-  rather than carried in the miss budget. Representing the moving target is the identified next
-  modeling step; until then "interception" means *terminal control to the nominal interception
-  point*, and the quoted plate miss is a lower bound on the true relative miss.
+- **The moving target is modeled by a relative plate frame with one placeholder trajectory**
+  ([ADR 0023](docs/adr/0023-moving-target-terminal-frame.md)). The plate-frame miss is now
+  measured ⊥ the **closing** velocity `v_rel = v − v_target` against a constant-velocity target;
+  the historical fixed-point frame is the `v_target = 0` case. For the nominal **mirror-ascending**
+  target the closing speed is only ~3 km/s — interception at 200 km sits ~8° from horizontal, so a
+  co-moving ascending rocket closes gently — and capture is *unaffected* (the fixed-point result is
+  mildly conservative, not optimistic, for this model). **This is target-model-dependent:** a
+  head-on or high-cross-track launch geometry would raise `|v_rel|` and could erode margin, so the
+  real launch trajectory is a mission-design input still to be supplied. **Still deferred:** a
+  dispersed/powered target (its *position* dispersion is largely nulled by beacon homing; the
+  residual is target *velocity* uncertainty), and wiring the moving frame into the D1.1 train and
+  tail-capture runs (which today use the conservative fixed frame).
 - **Terminal velocity knowledge is idealized.** The onboard ZEM state receives **exact truth
   velocity**; only position carries σ_θ·R measurement noise, and the hand-off residual is
   displaced in position with nominal velocity. Terminal miss at ~10.8 km/s depends on both

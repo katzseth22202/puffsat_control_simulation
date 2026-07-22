@@ -332,25 +332,117 @@ def plate_frame_miss(
     toa_s: float,
     target_position_m: Vec3,
     target_toa_s: float,
+    target_velocity_m_s: Vec3 = (0.0, 0.0, 0.0),
 ) -> PlateMiss:
-    """Decompose a crossing state vs the target point into the plate frame.
+    """Decompose a crossing state vs the (possibly moving) target into the plate frame.
 
-    The crossing is read at the 200 km altitude event, not at closest approach to the
-    target, so the along-velocity component of the position offset is converted to the
-    coasted closest-approach time: ``dt = −d·v/|v|²`` leaves ``d + v·dt ⊥ v``.
+    The crossing is read at the 200 km altitude event, not at closest approach, so the
+    along-relative-velocity component of the position offset is converted to the coasted
+    closest-approach time: ``dt = −d·v_rel/|v_rel|²`` leaves ``d + v_rel·dt ⊥ v_rel``.
+
+    The target is modeled constant-velocity through its nominal crossing (``target_position_m``
+    at ``target_toa_s``), so at the PuffSat's crossing time ``toa_s`` it sits at
+    ``target_position_m + v_target·(toa_s − target_toa_s)`` and the closing velocity is
+    ``v_rel = v − v_target``.  ``target_velocity_m_s = 0`` recovers the fixed-point frame
+    (miss ⊥ the PuffSat's inertial velocity), so existing callers are unchanged.
     """
-    d = np.asarray(position_m, dtype=np.float64) - np.asarray(target_position_m, dtype=np.float64)
     v = np.asarray(velocity_m_s, dtype=np.float64)
-    speed_sq = float(v @ v)
-    dt = -float(d @ v) / speed_sq
-    lateral = d + v * dt
+    v_target = np.asarray(target_velocity_m_s, dtype=np.float64)
+    v_rel = v - v_target
+    target_at_crossing = np.asarray(target_position_m, dtype=np.float64) + v_target * (
+        toa_s - target_toa_s
+    )
+    d = np.asarray(position_m, dtype=np.float64) - target_at_crossing
+    speed_sq = float(v_rel @ v_rel)
+    dt = -float(d @ v_rel) / speed_sq
+    lateral = d + v_rel * dt
 
-    unit = v / np.sqrt(speed_sq)
+    unit = v_rel / np.sqrt(speed_sq)
     e1, e2 = _perp_basis(unit)
     return PlateMiss(
         lateral_m=(float(lateral @ e1), float(lateral @ e2)),
         toa_error_s=(toa_s + dt) - target_toa_s,
     )
+
+
+def lateral_scatter_sigma_m(misses: Sequence[PlateMiss]) -> float:
+    """The symmetric 2-D per-axis lateral σ of an arrival set (the ADR 0015 capture σ)."""
+    if not misses:
+        return 0.0
+    sq = sum(m.lateral_m[0] ** 2 + m.lateral_m[1] ** 2 for m in misses)
+    return float(np.sqrt(sq / (2.0 * len(misses))))
+
+
+@dataclass(frozen=True)
+class MovingTargetFinding:
+    """Fixed-point vs moving-target terminal capture at the nominal grade (ADR 0023).
+
+    The fixed case (v_target = 0) is the historical C3b/D1.1 frame; the moving case scores
+    the same flown trajectories against a target closing at ``closing_speed_m_s``.
+    """
+
+    puffsat_speed_m_s: float
+    closing_speed_m_s: float
+    fixed_sigma_lateral_m: float
+    moving_sigma_lateral_m: float
+    fixed_capture: float
+    moving_capture: float
+    n_runs: int
+    plate_radius_m: float = PLATE_RADIUS_M
+    sigma_max_m: float = CAPTURE_SIGMA_MAX_M
+
+    @property
+    def closing_ratio(self) -> float:
+        return (
+            self.closing_speed_m_s / self.puffsat_speed_m_s if self.puffsat_speed_m_s else math.inf
+        )
+
+    @property
+    def sigma_ratio(self) -> float:
+        return (
+            self.moving_sigma_lateral_m / self.fixed_sigma_lateral_m
+            if self.fixed_sigma_lateral_m
+            else math.inf
+        )
+
+    @property
+    def moving_meets_criterion(self) -> bool:
+        return self.moving_sigma_lateral_m <= self.sigma_max_m
+
+
+def format_moving_target(f: MovingTargetFinding) -> str:
+    """One-screen fixed-vs-moving comparison (ADR 0023)."""
+    verdict = "MEETS σ criterion" if f.moving_meets_criterion else "MISSES σ criterion"
+    return "\n".join(
+        (
+            "Moving-target terminal capture (ADR 0023)",
+            f"  PuffSat speed:   {f.puffsat_speed_m_s / 1e3:6.2f} km/s",
+            f"  Closing speed:   {f.closing_speed_m_s / 1e3:6.2f} km/s  "
+            f"({f.closing_ratio:.2f}× PuffSat)",
+            f"  σ_lateral fixed: {f.fixed_sigma_lateral_m:6.3f} m",
+            f"  σ_lateral moving:{f.moving_sigma_lateral_m:6.3f} m  "
+            f"({f.sigma_ratio:.2f}× fixed)   [{verdict}, ≤ {f.sigma_max_m} m]",
+            f"  capture fixed:   {f.fixed_capture * 100:6.2f} %   "
+            f"moving: {f.moving_capture * 100:6.2f} %   "
+            f"(plate {f.plate_radius_m:g} m, N={f.n_runs})",
+        )
+    )
+
+
+def reflect_radial_velocity(position_m: Vec3, velocity_m_s: Vec3) -> Vec3:
+    """Reflect a velocity across the local horizontal at ``position_m`` (flip its radial part).
+
+    Models an *ascending* target as the mirror of a descending one: same speed and same
+    horizontal motion, opposite radial sign.  A clean single-parameter stand-in for a real
+    launch-rocket trajectory at the interception — deliberately fast, so the closing speed
+    ``|v − v_target|`` and hence the plate-frame miss are on the pessimistic side until the
+    actual target trajectory is supplied.
+    """
+    p = np.asarray(position_m, dtype=np.float64)
+    v = np.asarray(velocity_m_s, dtype=np.float64)
+    r_hat = p / float(np.linalg.norm(p))
+    reflected = v - 2.0 * float(v @ r_hat) * r_hat
+    return (float(reflected[0]), float(reflected[1]), float(reflected[2]))
 
 
 def capture_fraction(
@@ -406,6 +498,11 @@ class GuidanceRun:
     plan: FeedforwardPlan
     saturated_fraction: float
     perigee_alt_m: float = 0.0  # the crossing perigee (Rung-D diagnostic, low = good)
+    # The raw 200 km crossing, kept so a flight can be re-scored against a moving target
+    # (ADR 0023) without reflying it — target velocity affects only the plate frame.
+    crossing_position_m: Vec3 = (0.0, 0.0, 0.0)
+    crossing_velocity_m_s: Vec3 = (0.0, 0.0, 0.0)
+    crossing_toa_s: float = 0.0
 
 
 @dataclass(frozen=True)

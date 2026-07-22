@@ -63,6 +63,102 @@ class TestPlateFrameMiss:
         assert miss.toa_error_s == pytest.approx(-40.0 / float(np.linalg.norm(v)))
 
 
+class TestMovingTarget:
+    def test_zero_target_velocity_recovers_the_fixed_point_frame(self) -> None:
+        from puffsat_sim.guidance import plate_frame_miss
+
+        args = ((3.0, 0.0, -4.0), (0.0, 10_780.0, 0.0), 10_000.2, (0.0, 0.0, 0.0), 10_000.0)
+        fixed = plate_frame_miss(*args)
+        explicit_zero = plate_frame_miss(*args, target_velocity_m_s=(0.0, 0.0, 0.0))
+
+        assert explicit_zero.lateral_m == fixed.lateral_m
+        assert explicit_zero.toa_error_s == fixed.toa_error_s
+
+    def test_miss_is_perpendicular_to_the_relative_velocity(self) -> None:
+        from puffsat_sim.guidance import plate_frame_miss
+
+        v = (0.0, 10_780.0, 0.0)
+        v_target = (0.0, -7_000.0, 0.0)  # head-on: closing speed 17 780 m/s
+        # A purely along-relative-velocity offset must read as ToA error, zero lateral.
+        v_rel = np.array(v) - np.array(v_target)
+        along = 30.0 * v_rel / np.linalg.norm(v_rel)
+
+        miss = plate_frame_miss(
+            (along[0], along[1], along[2]),
+            v,
+            toa_s=0.0,
+            target_position_m=(0.0, 0.0, 0.0),
+            target_toa_s=0.0,
+            target_velocity_m_s=v_target,
+        )
+
+        assert miss.lateral_norm_m == pytest.approx(0.0, abs=1e-9)
+        assert miss.toa_error_s == pytest.approx(-30.0 / float(np.linalg.norm(v_rel)))
+
+    def test_target_motion_shifts_the_lateral_miss(self) -> None:
+        from puffsat_sim.guidance import plate_frame_miss
+
+        # A crossing that is a clean hit against a fixed target becomes a miss once the
+        # target is moving laterally and the PuffSat crosses off the nominal time.
+        v = (0.0, 10_780.0, 0.0)
+        v_target = (200.0, 0.0, 0.0)  # target drifting in +x
+        fixed = plate_frame_miss((0.0, 0.0, 0.0), v, 10_000.1, (0.0, 0.0, 0.0), 10_000.0)
+        moving = plate_frame_miss(
+            (0.0, 0.0, 0.0), v, 10_000.1, (0.0, 0.0, 0.0), 10_000.0, target_velocity_m_s=v_target
+        )
+
+        # By the crossing the target has drifted (200,0,0)·0.1 = (20,0,0); the miss is that
+        # displacement with its (small) along-v_rel component projected out.
+        d = -np.array([20.0, 0.0, 0.0])
+        v_rel = np.array(v) - np.array(v_target)
+        expected = d - (d @ v_rel) / (v_rel @ v_rel) * v_rel
+
+        assert fixed.lateral_norm_m == pytest.approx(0.0, abs=1e-9)
+        assert moving.lateral_norm_m == pytest.approx(float(np.linalg.norm(expected)))
+        assert moving.lateral_norm_m > 15.0  # a real miss the fixed frame does not see
+
+    def test_reflect_radial_velocity_flips_radial_keeps_horizontal_and_speed(self) -> None:
+        from puffsat_sim.guidance import reflect_radial_velocity
+
+        position = (7_000_000.0, 0.0, 0.0)  # radial = +x
+        velocity = (-3_000.0, 8_000.0, 0.0)  # descending (radial inward) + horizontal
+        reflected = reflect_radial_velocity(position, velocity)
+
+        assert reflected[0] == pytest.approx(3_000.0)  # radial flipped to outward
+        assert reflected[1] == pytest.approx(8_000.0)  # horizontal unchanged
+        assert reflected[2] == pytest.approx(0.0)
+        assert np.linalg.norm(reflected) == pytest.approx(np.linalg.norm(velocity))
+
+    def test_lateral_scatter_sigma_of_a_symmetric_2d_set(self) -> None:
+        from puffsat_sim.guidance import PlateMiss, lateral_scatter_sigma_m
+
+        misses = (
+            PlateMiss(lateral_m=(2.0, 0.0), toa_error_s=0.0),
+            PlateMiss(lateral_m=(-2.0, 0.0), toa_error_s=0.0),
+            PlateMiss(lateral_m=(0.0, 2.0), toa_error_s=0.0),
+            PlateMiss(lateral_m=(0.0, -2.0), toa_error_s=0.0),
+        )
+        # mean(|lat|^2) = 4, per-axis sigma = sqrt(4/2) = sqrt(2)
+        assert lateral_scatter_sigma_m(misses) == pytest.approx(np.sqrt(2.0))
+        assert lateral_scatter_sigma_m(()) == 0.0
+
+    def test_finding_ratios_and_criterion(self) -> None:
+        from puffsat_sim.guidance import MovingTargetFinding
+
+        f = MovingTargetFinding(
+            puffsat_speed_m_s=10_780.0,
+            closing_speed_m_s=17_780.0,
+            fixed_sigma_lateral_m=0.9,
+            moving_sigma_lateral_m=1.8,
+            fixed_capture=1.0,
+            moving_capture=0.98,
+            n_runs=64,
+        )
+        assert f.closing_ratio == pytest.approx(17_780.0 / 10_780.0)
+        assert f.sigma_ratio == pytest.approx(2.0)
+        assert f.moving_meets_criterion is False  # 1.8 > 1.65
+
+
 class TestCapture:
     def test_capture_requires_both_the_plate_radius_and_the_toa_window(self) -> None:
         from puffsat_sim.guidance import PlateMiss, capture_fraction
