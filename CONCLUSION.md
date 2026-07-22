@@ -211,6 +211,19 @@ plausibility argument, not a verified result.
   depends on the bench-measured distortion correlation length
   ([`distortion_field.py`](puffsat_sim/distortion_field.py)); the co-flyer, as a physically
   independent platform, is the hedge that survives fully-correlated distortion.
+- **Lower-order navigation-model simplifications** sit under the C1 apogee-nav numbers. They do
+  not threaten the *knowledge-limited* conclusion — that is a regime finding, robust to the exact
+  σ's — but they should be tightened before those σ's are quoted as hardware requirements:
+  (i) the C1 LinCov places beacon nodes at rigid RTN offsets carrying the PuffSat's exact inertial
+  velocity, so the observability geometry is reconstructed each epoch rather than propagated as
+  realizable orbits; (ii) the filter process noise is a white-acceleration PSD but is parameterized
+  as a physical acceleration, so `q`-vs-tidal-acceleration comparisons are only order-of-magnitude;
+  (iii) NEES consistency is averaged over temporally correlated epochs of a single trajectory, so
+  it is an indicative check, not a full Monte-Carlo consistency test; (iv) the passive one-way
+  apogee-Doppler result solves three velocity components with the receiver clock held, so its
+  thermal precision omits TCXO drift and the **match-not-beat** margin there is the softest of the
+  sizing numbers. These are lower-order relative to the terminal-nav story and are carried as
+  refinements for the expert review.
 - The drag/SRP shape model is a **conservative cannonball** placeholder; the optimistic
   attitude-dependent cylinder (Rung E) can only improve a passing number
   ([ADR 0009](docs/adr/0009-shape-fidelity-cannonball-placeholder.md)).
