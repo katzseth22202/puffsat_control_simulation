@@ -25,7 +25,7 @@ proof. Keeping them separate is the whole point — only the first is a flown re
 
 | Tier | Claim | Status |
 |---|---|---|
-| **1 — Simulated & closed out** | A PuffSat captures a **5 m pusher plate at ≥99% per-unit confidence** under full dispersions (LEO scenario). | Closed-loop Monte Carlo; Rung D / D1 closed ([ADR 0018](docs/adr/0018-rung-d-decomposition.md)). |
+| **1 — Simulated & closed out** | Closed-loop terminal control delivers a PuffSat onto a **5 m pusher plate at the nominal interception point at ≥99% per-unit confidence** under full dispersions (LEO scenario). The target rocket is represented by that fixed interception state, not co-propagated (see caveats). | Closed-loop Monte Carlo; Rung D / D1 closed ([ADR 0018](docs/adr/0018-rung-d-decomposition.md)). |
 | **2 — Argued / sized, not closed-loop** | A surveyor-anchored, camera-rigid extension drives the per-unit miss to a **metrology-limited ~10 cm plate**. | Analytic architecture argument; deferred follow-on, no ADR ([CONTEXT.md](CONTEXT.md): *Surveyor-anchored centering*). |
 | **3 — Architectural extension sketch** | The same design pattern extends to a **near-Sun / Parker-class** trajectory, swapping star references for artificial beacons. | Paper-side, reversible, **two open sizing numbers, not simulated in this repo** ([CONTEXT.md](CONTEXT.md): *Near-Sun optical nav*). |
 
@@ -111,10 +111,18 @@ flying the real terminal loop through the catch-radius cliff, the significance g
 
 - **Combined entry × noise stress sets the binding terminal-nav requirement at ~3.2 µrad**
   — tighter than the 10 µrad ceiling each effect implied alone. A **single detector** at the
-  achievable 3.2 µrad grade is **marginal** (P(capture) ≈ 99.2%, σ ≈ 1.5 m), so the
-  **committed architecture is the fused tracker array**: 5-array → σ ≈ 0.9 m / 100% capture;
-  + co-flyer → σ ≈ 0.3 m / 100%. The importance-sampled tail at the fused grade reaches
-  **P(capture) ≈ 99.999%**.
+  achievable 3.2 µrad grade is **marginal**, and this is the **directly-flown result**:
+  brute-force Monte Carlo (N = 500) gives **P(capture) ≈ 99.2%, arrival σ ≈ 1.51 m**. So the
+  **committed architecture is the fused tracker array**: fusion drives the arrival scatter down
+  (5-array → σ ≈ 0.9 m; + co-flyer → σ ≈ 0.3 m), and the flown batch at those grades sees
+  **zero escapes** — consistent with ≥99.9% per-unit, but brute force cannot resolve the tail
+  depth at these sample sizes. The often-quoted **≈99.999%** at the fused grade is an
+  **importance-sampling + catch-radius-analytic *extrapolation* into that tail, not a
+  directly-counted Monte-Carlo result**: the committed `tail_capture` runner defaults to the
+  single-detector grade and reports the brute-force estimate, so the fused-tail figure is
+  **recorded from the analysis, not reproduced by the checked-in pipeline**. The reproducible
+  claims are the single-detector **99.2%** and "**zero escapes in the flown fused batch**";
+  treat 99.999% as a model extrapolation.
 - **Propellant** stays under the ~2% claim across the stack (~0.9% typical, ~1.2% worst case
   at Isp 50 s).
 - **ToA** is ≤ ~0.7 ms — two orders inside the 10 ms requirement.
@@ -178,6 +186,27 @@ plausibility argument, not a verified result.
   Monte Carlo takes as inputs. The σ_θ tracker budget, apogee-constellation GDOP, and torque
   margin convert those inputs toward derived hardware requirements
   ([ADR 0018](docs/adr/0018-rung-d-decomposition.md)).
+- **The target rocket is modeled as a fixed interception state, not co-propagated.** The
+  terminal loop homes on the PuffSat's own nominal drag-free 200 km crossing, which stands in for
+  the rocket's plate; the rocket is not integrated as a second body. Consequently the
+  **closing-velocity geometry** (which sets the plate normal), the **target's own state
+  dispersion**, and **target motion during the ToA window** are absorbed into that fixed point
+  rather than carried in the miss budget. Representing the moving target is the identified next
+  modeling step; until then "interception" means *terminal control to the nominal interception
+  point*, and the quoted plate miss is a lower bound on the true relative miss.
+- **Terminal velocity knowledge is idealized.** The onboard ZEM state receives **exact truth
+  velocity**; only position carries σ_θ·R measurement noise, and the hand-off residual is
+  displaced in position with nominal velocity. Terminal miss at ~10.8 km/s depends on both
+  position *and* velocity error, so the absence of any range-rate / clock / velocity-estimate
+  error is a simplification that favors the result.
+- **The dominant σ_θ floor is flown as zero-mean noise but argued to be a persistent bias.**
+  The guidance loop injects the calibration floor as a 10 s zero-mean Gauss–Markov process, which
+  the √N array averaging then reduces; but the same floor is argued elsewhere to be a quasi-static
+  focal-plane **distortion bias** (the reason there is "no hardware walk-back"). The fusion benefit
+  (5-array 1.62 µrad; +co-flyer 0.76 µrad) is therefore an **optimistic bound** whose realization
+  depends on the bench-measured distortion correlation length
+  ([`distortion_field.py`](puffsat_sim/distortion_field.py)); the co-flyer, as a physically
+  independent platform, is the hedge that survives fully-correlated distortion.
 - The drag/SRP shape model is a **conservative cannonball** placeholder; the optimistic
   attitude-dependent cylinder (Rung E) can only improve a passing number
   ([ADR 0009](docs/adr/0009-shape-fidelity-cannonball-placeholder.md)).

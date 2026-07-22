@@ -119,6 +119,37 @@ def read_records(path: Path) -> list[RunRecord]:
     return records
 
 
+def manifest_path(sink_path: Path) -> Path:
+    """The sidecar path holding a sink's experiment identity."""
+    return sink_path.with_suffix(sink_path.suffix + ".manifest.json")
+
+
+def guard_manifest(sink_path: Path, manifest: dict[str, str]) -> None:
+    """Pin the experiment identity to the sink: write it fresh, or refuse a mismatched resume.
+
+    ``plan_resume`` only catches a changed seed/spec (via per-index input replay); it cannot
+    see a resume under a *different controller, actuator, orbital config, or model version*,
+    which would silently mix stale records into a different experiment.  This sidecar closes
+    that gap.  A pre-existing sink with no manifest (legacy) is adopted best-effort — its
+    identity is unknowable, so a fresh manifest is written and resume is allowed.
+    """
+    mpath = manifest_path(sink_path)
+    if mpath.exists():
+        existing = json.loads(mpath.read_text(encoding="utf-8"))
+        if existing != manifest:
+            diff = {
+                k: (existing.get(k), manifest.get(k))
+                for k in set(existing) | set(manifest)
+                if existing.get(k) != manifest.get(k)
+            }
+            raise ValueError(
+                f"sink {sink_path} was written under a different experiment: {diff} — "
+                "use a fresh sink path or matching parameters"
+            )
+        return
+    mpath.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def plan_resume(
     existing: Iterable[RunRecord], master_seed: int, spec: DispersionSpec, n: int
 ) -> tuple[dict[int, RunRecord], list[int]]:
@@ -126,8 +157,9 @@ def plan_resume(
 
     A sink record is reused only if its inputs match what ``(master_seed, spec)``
     replays for its index, so resuming with a different seed or spec is caught rather
-    than silently mixed; records with index >= n are ignored.  (Controller consistency
-    is the caller's responsibility — inputs are control-independent.)
+    than silently mixed; records with index >= n are ignored.  Non-input experiment
+    identity (controller, actuator, orbital config, model version) is guarded separately
+    by :func:`guard_manifest`.
     """
     reuse: dict[int, RunRecord] = {}
     for record in existing:

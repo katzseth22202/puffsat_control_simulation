@@ -213,8 +213,9 @@ class TailCaptureFinding:
     @property
     def is_agrees_at_plate(self) -> bool:
         """The (fragile) IS plate estimate brackets the brute-force one — a consistency read."""
-        return self.is_plate.ci_low <= self.bf_plate.ci_high and self.bf_plate.probability <= max(
-            self.is_plate.ci_high, self.bf_plate.ci_high
+        return (
+            self.is_plate.ci_low <= self.bf_plate.ci_high
+            and self.bf_plate.ci_low <= self.is_plate.ci_high
         )
 
     @property

@@ -77,7 +77,16 @@ def propagate_to_interception(propagator: Any, epoch: Any, period: float, earth:
             StopOnDecreasing()  # type: ignore[no-untyped-call]
         )
     )
-    state = propagator.propagate(epoch.shiftedBy(period))
+    end = epoch.shiftedBy(period)
+    state = propagator.propagate(end)
+    # A stop-on-decreasing altitude event ends the arc *before* one period; reaching `end`
+    # means the arc never crossed 200 km, so `state` is not an interception — fail loud
+    # rather than report a full-period state as a crossing.
+    if state.getDate().durationFrom(end) >= -1.0:
+        raise ValueError(
+            f"descending arc never crossed {mission.INTERCEPTION_ALT_M / 1e3:.0f} km "
+            "within one period — no interception to read"
+        )
     pv = state.getPVCoordinates()
     orbit = KeplerianOrbit(state.getOrbit())
     perigee_alt = float(orbit.getA()) * (1.0 - float(orbit.getE())) - EARTH_RADIUS_M

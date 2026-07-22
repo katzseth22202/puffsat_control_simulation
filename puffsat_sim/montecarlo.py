@@ -67,7 +67,12 @@ from puffsat_sim.navigation import Vec6
 from puffsat_sim.orbital_math import keplerian_elements, keplerian_period
 from puffsat_sim.propagator import build_propagator
 from puffsat_sim.records import EnsembleResult, RunRecord
-from puffsat_sim.sink import append_record, plan_resume, read_records
+from puffsat_sim.sink import append_record, guard_manifest, plan_resume, read_records
+
+# Bump when a model change (physics, actuator realization, truth path) makes prior sink
+# records incomparable, so a resume onto a stale sink fails loud (guard_manifest) rather than
+# mixing incompatible records.  It is a manual proxy for a source fingerprint, not automatic.
+MODEL_VERSION: str = "1"
 
 # Finite-burn execution (B1, ADR 0008): the propagator runs at a fictitious 1 kg so the
 # lumped Cd·(A/m) / Cr·(A/m) scale drag/SRP correctly, so the burn thrust is scaled to that
@@ -321,6 +326,35 @@ def build_context(orbital_config: OrbitalConfig) -> RunContext:
     )
 
 
+def _experiment_manifest(
+    master_seed: int,
+    spec: DispersionSpec,
+    orbital_config: OrbitalConfig,
+    variant: RunVariant,
+) -> dict[str, str]:
+    """The sink's experiment identity (see ``guard_manifest``).
+
+    ``n`` is deliberately absent — extending an ensemble to a larger ``n`` on the same
+    experiment is a valid resume.  The controller id is module.qualname, so it does not
+    distinguish two controllers that differ only by closed-over parameters.
+    """
+    control = variant.control
+    if control is None:
+        control_id = "open-loop"
+    else:
+        module = getattr(control, "__module__", "?")
+        qualname = getattr(control, "__qualname__", repr(control))
+        control_id = f"{module}.{qualname}"
+    return {
+        "model_version": MODEL_VERSION,
+        "master_seed": str(master_seed),
+        "spec": repr(spec),
+        "orbital_config": repr(orbital_config),
+        "control": control_id,
+        "actuator": "impulsive" if variant.actuator is None else repr(variant.actuator),
+    }
+
+
 def run_ensemble(
     spec: DispersionSpec,
     n: int,
@@ -341,9 +375,11 @@ def run_ensemble(
     actuator-realism erosion.  Requires a ``control``; ``None`` keeps impulsive execution.
 
     ``sink_path`` enables run-granular checkpoint/resume: completed records stream to a
-    JSONL sink keyed by ``run_index``; on restart only the missing indices are run
-    (the present ones must match this ``master_seed``/``spec``).  The caller must resume
-    with the same ``control`` — inputs are control-independent, so it is not auto-checked.
+    JSONL sink keyed by ``run_index``; on restart only the missing indices are run.  A
+    resume is admitted only if the sink's replayed inputs match this ``master_seed``/``spec``
+    (``plan_resume``) *and* its sidecar manifest matches this controller / actuator / orbital
+    config / ``MODEL_VERSION`` (``guard_manifest``) — so a stale sink cannot be silently
+    extended under a different experiment.
     """
     ctx = build_context(orbital_config)
     variant = RunVariant(control=control, actuator=actuator)
@@ -351,6 +387,7 @@ def run_ensemble(
     reuse: dict[int, RunRecord] = {}
     todo = list(range(n))
     if sink_path is not None:
+        guard_manifest(sink_path, _experiment_manifest(master_seed, spec, orbital_config, variant))
         reuse, todo = plan_resume(read_records(sink_path), master_seed, spec, n)
     records_by_index: dict[int, RunRecord] = dict(reuse)
     for i in todo:

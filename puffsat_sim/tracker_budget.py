@@ -52,6 +52,12 @@ HANDOFF_SIGMA_LATERAL_M: float = 141.0
 ACQUISITION_RANGE_M: float = 300_000.0
 ACQUISITION_SIGMAS: float = 3.0
 
+# The longest target-side LOS the σ_θ grade must hold at: the terminal loop opens with the
+# tracker array ~2603 km from the incoming PuffSat and closes from there (ADR 0019, the D1.1
+# hand-off→target range).  The photon SNR is *worst* here, so the photon term is evaluated at
+# this range, not the (shorter) 300 km acquisition range.
+TERMINAL_MAX_RANGE_M: float = 2.603e6
+
 # Reference-star density brighter than ~10th magnitude (≈3.5e5 stars over 4π sr): the
 # differential astrometry needs a handful of these in the FOV alongside the beacon.
 STAR_DENSITY_PER_SR: float = 2.8e4
@@ -303,7 +309,7 @@ class TrackerBudgetFinding:
 def tracker_budget_finding(
     hardware: TrackerHardware | None = None,
     *,
-    design_range_m: float = ACQUISITION_RANGE_M,
+    design_range_m: float = TERMINAL_MAX_RANGE_M,
     handoff_sigma_lateral_m: float = HANDOFF_SIGMA_LATERAL_M,
     acquisition_range_m: float = ACQUISITION_RANGE_M,
     acquisition_sigmas: float = ACQUISITION_SIGMAS,
@@ -313,8 +319,9 @@ def tracker_budget_finding(
     """Assemble the σ_θ gate finding for a hardware point (the pure runner).
 
     ``hardware=None`` uses the conservative default point.  The photon term is evaluated at
-    ``design_range_m`` — the longest (worst) range the grade must hold, the acquisition range
-    — since the SNR only improves as the PuffSat closes.
+    ``design_range_m`` — the longest (worst) target-side LOS the grade must hold
+    (``TERMINAL_MAX_RANGE_M``, the terminal-onset range) — since the SNR only improves as the
+    PuffSat closes.
     """
     hw = hardware if hardware is not None else TrackerHardware()
     return TrackerBudgetFinding(
