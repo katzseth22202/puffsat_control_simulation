@@ -1,0 +1,22 @@
+# Keep shared project Codex config tracked.
+!/.gitignore
+!/config.toml
+
+# Local credentials, sessions, logs, and generated runtime state.
+auth.json
+.env
+sessions/
+archived_sessions/
+logs/
+*.log
+*.sqlite
+*.sqlite3
+
+# Personal extensions belong in a user-level CODEX_HOME unless explicitly shared.
+skills/
+plugins/
+prompts/
+memories/
+memories_extensions/
+rules/
+hooks/
